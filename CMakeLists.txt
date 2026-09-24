@@ -26,9 +26,11 @@ add_library(ytres STATIC
     include/ytres/http.h
     src/url_parse.h src/url_parse.cpp
     src/format_pick.cpp
+    src/curl_http_client.h src/curl_http_client.cpp
 )
 target_include_directories(ytres
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 ytres_compile_options(ytres)
+target_link_libraries(ytres PRIVATE CURL::libcurl)
