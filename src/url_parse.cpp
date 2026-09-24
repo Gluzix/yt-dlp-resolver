@@ -1,5 +1,7 @@
 #include "url_parse.h"
 
+#include "ascii.h"
+
 namespace ytres {
 
 namespace {
@@ -9,18 +11,6 @@ const std::string_view VIDEO_PATH_PREFIXES[] = {"/shorts/", "/live/", "/embed/",
 bool isIdChar(char c)
 {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
-}
-
-// ASCII only: hosts and schemes are ASCII, and a locale must not matter.
-std::string lowercase(std::string_view text)
-{
-    std::string lower(text);
-    for (char &c : lower) {
-        if (c >= 'A' && c <= 'Z') {
-            c = static_cast<char>(c - 'A' + 'a');
-        }
-    }
-    return lower;
 }
 
 bool startsWith(std::string_view text, std::string_view prefix)
@@ -86,7 +76,7 @@ Result<std::string> parseVideoId(std::string_view urlOrId)
     }
 
     std::string_view rest = input;
-    const std::string lowerInput = lowercase(input);
+    const std::string lowerInput = asciiLower(input);
     if (startsWith(lowerInput, "https://")) {
         rest.remove_prefix(8);
     } else if (startsWith(lowerInput, "http://")) {
@@ -96,7 +86,7 @@ Result<std::string> parseVideoId(std::string_view urlOrId)
     // The host ends where the path, query or fragment starts. A port or a
     // user@ part stays in it and so fails the comparisons below.
     const size_t hostEnd = rest.find_first_of("/?#");
-    const std::string host = lowercase(rest.substr(0, hostEnd));
+    const std::string host = asciiLower(rest.substr(0, hostEnd));
     const std::string_view path = hostEnd == std::string_view::npos ? std::string_view{} : rest.substr(hostEnd);
 
     std::string_view id;
