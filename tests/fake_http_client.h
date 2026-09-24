@@ -2,11 +2,13 @@
 
 #include "ytres/http.h"
 
+#include <chrono>
 #include <deque>
 #include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -24,10 +26,13 @@ inline std::string headerValue(const ytres::HttpRequest &request, const std::str
 // Stands in for the network: the InnerTube POST gets the next of
 // playerBodyQueue while it lasts, else the asking client's entry in
 // playerBodyByClient, else playerBody; any other request (the watch page)
-// gets watchPage; and every request is kept for the test to look at.
+// gets watchPage; and every request is kept for the test to look at, with
+// the time it arrived.
 class FakeHttpClient : public ytres::HttpClient
 {
 public:
+    using Clock = std::chrono::steady_clock;
+
     explicit FakeHttpClient(std::string playerBody_, std::string watchPage_ = {})
         : playerBody(std::move(playerBody_)), watchPage(std::move(watchPage_))
     {
@@ -36,7 +41,18 @@ public:
     ytres::Result<ytres::HttpResponse> send(const ytres::HttpRequest &request) override
     {
         requests.push_back(request);
+        arrivals.push_back(Clock::now());
         const bool player = request.url.find("/youtubei/v1/player") != std::string::npos;
+        // A request slower than its timeout waits the timeout out and fails,
+        // as the HttpClient contract has a real one do.
+        const std::chrono::milliseconds delay = player ? playerDelay : pageDelay;
+        if (delay > std::chrono::milliseconds::zero()) {
+            const bool timesOut = delay >= request.timeout;
+            waitUntil(arrivals.back() + (timesOut ? request.timeout : delay));
+            if (timesOut) {
+                return {{ytres::Error::Timeout, "Timeout was reached"}, {}};
+            }
+        }
         const ytres::Status &failure = player ? playerFailure : pageFailure;
         if (failure.code != ytres::Error::Ok) {
             return {failure, {}};
@@ -65,7 +81,20 @@ public:
     long pageStatus{200};
     ytres::Status playerFailure; // not Ok: returned instead of a response
     ytres::Status pageFailure;
+    std::chrono::milliseconds playerDelay{0}; // how long each request takes to answer
+    std::chrono::milliseconds pageDelay{0};
     std::vector<ytres::HttpRequest> requests;
+    std::vector<Clock::time_point> arrivals; // one per request
+
+private:
+    // Never early, whatever the platform's sleep does: a test that measures
+    // what is left of a deadline needs the time really spent.
+    static void waitUntil(Clock::time_point until)
+    {
+        while (Clock::now() < until) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
 };
 
 // A recorded response from tests/fixtures, byte for byte.

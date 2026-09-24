@@ -99,7 +99,11 @@ struct VideoInfo
     std::optional<Format> bestAudio() const;
 };
 
-// Per-call cancellation and deadline. cancelled may be empty.
+// Per-call cancellation and deadline. cancelled may be empty. deadline bounds
+// the whole call - the watch page, every client of the ladder and the bot
+// check's second try alike: each request gets the smaller of
+// Options::requestTimeout and what is left of it, and none is sent once it
+// has run out.
 struct Request
 {
     std::function<bool()> cancelled;
