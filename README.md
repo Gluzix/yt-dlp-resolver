@@ -18,7 +18,7 @@ what YouTube answered to it.
 
 ## Requirements
 
-Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.14+ and vcpkg at
+Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.20+ and vcpkg at
 `C:/vcpkg`. libcurl, nlohmann-json and doctest come through the `vcpkg.json`
 manifest; the first configure builds libcurl from source and takes a few
 minutes.
