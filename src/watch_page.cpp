@@ -87,7 +87,7 @@ HttpRequest request(const innertube::ClientDef &client, const std::string &video
     HttpRequest request;
     request.method = "GET";
     request.url = canonicalWatchUrl(videoId);
-    request.headers = {{"User-Agent", client.userAgent}};
+    request.headers = {{"User-Agent", client.userAgent}, {"Cookie", "SOCS=CAI"}};
     return request;
 }
 

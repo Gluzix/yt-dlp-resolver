@@ -9,11 +9,14 @@
 // The video's watch page, fetched only for the visitor data in its ytcfg.
 // Without visitor data YouTube answers most anonymous player requests with
 // "Sign in to confirm you're not a bot" (docs/innertube-notes.md, Verified
-// live), so every resolve asks for the page first.
+// live), so a Resolver fetches the page before its first player request and
+// whenever the bot check comes back.
 namespace ytres::watchpage {
 
 // GET https://www.youtube.com/watch?v=<id> with the client's user agent and
-// no other header, as the notes say.
+// yt-dlp's consent cookie, SOCS=CAI, which accepts the EU cookie consent up
+// front so that the consent interstitial cannot stand in for the page. No
+// other header.
 HttpRequest request(const innertube::ClientDef &client, const std::string &videoId);
 
 struct VisitorData

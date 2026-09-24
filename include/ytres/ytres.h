@@ -17,8 +17,9 @@
 //   Status says what went wrong, so a C or JNI wrapper need not care.
 // - Every string going in or out is UTF-8, and nothing converts code pages.
 // - One Resolver may be called from several threads at once: the bot
-//   resolves the next song while one plays. resolve() keeps no state between
-//   calls, and any cache added later needs a mutex.
+//   resolves the next song while one plays. The one thing its resolves share
+//   is the cached visitor data, behind a mutex that is never held across a
+//   request.
 // - Stream URLs die at VideoInfo::expiresAtUnix and work only from the IP
 //   address that resolved them.
 // =======================================================
@@ -136,9 +137,12 @@ public:
     ~Resolver();
 
     // Title, page url and every usable stream of one video. Accepts any
-    // youtube.com or youtu.be video link, or a bare 11-character id. Takes
-    // two requests: the watch page (about 1.3 MB), for the visitor data
-    // without which YouTube bot-checks most videos, then the player API.
+    // youtube.com or youtu.be video link, or a bare 11-character id.
+    // A warm Resolver asks the player API alone: one request. A cold one
+    // first fetches a watch page (about 1.3 MB) for the visitor data without
+    // which YouTube bot-checks most videos, and keeps it for up to 6 hours
+    // for every later resolve on any thread. A bot check fetches the page
+    // once more and asks once more, within the same deadline.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
 
 private:

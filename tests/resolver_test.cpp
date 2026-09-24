@@ -1,72 +1,20 @@
 #include "fake_http_client.h"
 #include "innertube.h"
+#include "test_resolver.h"
 
 #include <doctest/doctest.h>
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 using ytres::Error;
 using namespace std::chrono_literals;
 
-namespace {
-
-const char *const VISITOR_DATA = "CgtGSVhUVVJFAAAA%3D%3D";
-const std::string WATCH_PAGE =
-    R"(<script>ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtGSVhUVVJFAAAA%3D%3D"}}});</script>)";
-
-// A Resolver on a FakeHttpClient that answers with the recorded
-// dQw4w9WgXcQ response, keeping whatever it logs.
-class TestResolver
-{
-public:
-    explicit TestResolver(const std::string &watchPage = WATCH_PAGE, std::chrono::milliseconds requestTimeout = 10s)
-        : http(std::make_shared<FakeHttpClient>(readFixture("player_dQw4w9WgXcQ.json"), watchPage))
-        , resolver(options(requestTimeout))
-    {
-    }
-
-    bool logged(ytres::LogLevel level) const
-    {
-        return std::any_of(logs.begin(), logs.end(), [level](const auto &entry) { return entry.first == level; });
-    }
-
-    // The first line logged at level that contains text; null if none.
-    const std::string *logLine(ytres::LogLevel level, const std::string &text) const
-    {
-        for (const auto &[loggedLevel, line] : logs) {
-            if (loggedLevel == level && line.find(text) != std::string::npos) {
-                return &line;
-            }
-        }
-        return nullptr;
-    }
-
-    std::shared_ptr<FakeHttpClient> http;
-    std::vector<std::pair<ytres::LogLevel, std::string>> logs;
-    ytres::Resolver resolver;
-
-private:
-    ytres::Resolver::Options options(std::chrono::milliseconds requestTimeout)
-    {
-        ytres::Resolver::Options made;
-        made.http = http;
-        made.log = [this](ytres::LogLevel level, std::string_view text) { logs.emplace_back(level, std::string(text)); };
-        made.requestTimeout = requestTimeout;
-        return made;
-    }
-};
-
-}
-
-TEST_CASE("a resolve fetches the watch page, then asks the player with its visitor data")
+TEST_CASE("a cold resolve fetches the watch page, then asks the player with its visitor data")
 {
     TestResolver test;
     const auto result = test.resolver.resolve("https://youtu.be/dQw4w9WgXcQ");
@@ -273,9 +221,9 @@ TEST_CASE("a Resolver can come out of a factory and move, and a moved-from one r
     ytres::Resolver second; // its own libcurl client, which never gets to send
     second = std::move(first);
     CHECK(second.resolve("dQw4w9WgXcQ"));
-    CHECK(http->requests.size() == 4);
+    CHECK(http->requests.size() == 3); // the cache moved along: the player alone
 
     const auto moved = first.resolve("dQw4w9WgXcQ"); // NOLINT(bugprone-use-after-move): that is the point
     CHECK(moved.status.code == Error::BadInput);
-    CHECK(http->requests.size() == 4);
+    CHECK(http->requests.size() == 3);
 }

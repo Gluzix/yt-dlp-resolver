@@ -4,12 +4,14 @@ find_package(doctest CONFIG REQUIRED)
 add_executable(ytres_tests
     main.cpp
     fake_http_client.h
+    test_resolver.h
     url_parse_test.cpp
     format_pick_test.cpp
     player_request_test.cpp
     player_response_test.cpp
     watch_page_test.cpp
     resolver_test.cpp
+    visitor_cache_test.cpp
 )
 target_link_libraries(ytres_tests PRIVATE ytres doctest::doctest nlohmann_json::nlohmann_json)
 # The internals are tested directly, not only through the public API.

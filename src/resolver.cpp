@@ -1,8 +1,10 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
+#include "ascii.h"
 #include "innertube.h"
 #include "url_parse.h"
+#include "visitor_cache.h"
 #include "watch_page.h"
 
 #include <algorithm>
@@ -40,21 +42,40 @@ std::string bodyExcerpt(const std::string &body, size_t maxBytes)
     return excerpt;
 }
 
+// "Sign in to confirm you're not a bot" is about who asks, not about the
+// video, so other visitor data may get past it. It arrives as LoginRequired
+// and only its reason tells it from a real sign-in wall.
+bool isBotCheck(const Status &status)
+{
+    return status.code == Error::LoginRequired && asciiLower(status.message).find("not a bot") != std::string::npos;
+}
+
 }
 
 // A Resolver must stay safe to call from several threads at once: the bot
-// resolves the next song while one plays. Impl is never written after the
-// constructor and HttpClient::send() is safe to call concurrently, so
-// nothing here needs a lock. A cache added later will.
+// resolves the next song while one plays. options and http are never
+// written after the constructor, HttpClient::send() is safe to call
+// concurrently, and the one thing resolves share, the visitor data, sits in
+// a VisitorCache that locks for itself and never across a request.
 struct Resolver::Impl
 {
+    // What one resolve carries into each of its requests.
+    struct Call
+    {
+        std::string videoId;
+        const Request &request;
+        Clock::time_point deadline;
+    };
+
     Options options;
     std::shared_ptr<HttpClient> http;
+    VisitorCache visitorCache;
 
-    Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request) const;
-    Result<std::string> fetchVisitorData(const innertube::ClientDef &client, const std::string &videoId,
-                                         const Request &request, Clock::time_point deadline) const;
-    Result<HttpResponse> send(HttpRequest httpRequest, const Request &request, Clock::time_point deadline) const;
+    Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request);
+    Result<std::string> visitorDataToSend(const innertube::ClientDef &client, const Call &call);
+    Result<std::string> fetchVisitorData(const innertube::ClientDef &client, const Call &call);
+    Result<VideoInfo> askPlayer(const innertube::ClientDef &client, const std::string &visitorData, const Call &call) const;
+    Result<HttpResponse> send(HttpRequest httpRequest, const Call &call) const;
 
     void log(LogLevel level, std::string_view text) const
     {
@@ -96,7 +117,7 @@ Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &req
     }
 }
 
-Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request) const
+Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request)
 {
     // steady_clock counts nanoseconds in 64 bits, so an extreme deadline
     // wraps around: milliseconds::max() as "no deadline" into the past, a
@@ -114,15 +135,82 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
     if (!client) {
         return {{Error::BadInput, "No InnerTube client to ask"}, {}};
     }
+    const Call call{videoId.value, request, deadline};
 
-    const Result<std::string> visitorData = fetchVisitorData(*client, videoId.value, request, deadline);
+    const Result<std::string> visitorData = visitorDataToSend(*client, call);
     if (!visitorData) {
         return {visitorData.status, {}};
     }
+    Result<VideoInfo> info = askPlayer(*client, visitorData.value, call);
+    if (!isBotCheck(info.status)) {
+        return info;
+    }
 
-    log(LogLevel::Debug, "Asking the " + std::string(client->key) + " client for " + videoId.value);
+    // The cached visitor data may have worn out, or YouTube may have taken
+    // against this one: fetch the page once more and ask once more, within
+    // the same deadline. A page that brings nothing new leaves the bot check
+    // as the answer.
+    log(LogLevel::Warning, "Bot check for " + call.videoId + "; fetching fresh visitor data to ask once more");
+    const Result<std::string> fresh = fetchVisitorData(*client, call);
+    if (!fresh) {
+        return {fresh.status, {}};
+    }
+    if (fresh.value.empty()) {
+        return info;
+    }
+    return askPlayer(*client, fresh.value, call);
+}
+
+// The visitor data for a player request: the cached value while it is fresh,
+// else what the watch page has now. When the page brings none, a stale value
+// still goes out, since an old visitor id beats none.
+Result<std::string> Resolver::Impl::visitorDataToSend(const innertube::ClientDef &client, const Call &call)
+{
+    VisitorCache::Entry cached = visitorCache.get(Clock::now());
+    if (cached.fresh) {
+        return {{}, std::move(cached.value)};
+    }
+    log(LogLevel::Debug, cached.value.empty() ? "No visitor data yet; fetching the watch page"
+                                              : "The visitor data has expired; fetching the watch page");
+    Result<std::string> fetched = fetchVisitorData(client, call);
+    if (fetched && fetched.value.empty()) {
+        fetched.value = visitorCache.get(Clock::now()).value; // another thread may have stored one meanwhile
+    }
+    return fetched;
+}
+
+// Fetches the watch page and caches the visitor data in it; the value is
+// empty when the page has none. Without visitor data most player requests
+// meet a bot check, but the request is still worth making (some videos
+// answer anyway), so a page that fails or lacks it costs a warning, not the
+// resolve, and leaves the cache as it was. Only a cancel ends the resolve
+// here; a spent deadline ends it at the next send().
+Result<std::string> Resolver::Impl::fetchVisitorData(const innertube::ClientDef &client, const Call &call)
+{
+    const Result<HttpResponse> page = send(watchpage::request(client, call.videoId), call);
+    if (page.status.code == Error::Cancelled) {
+        return {page.status, {}};
+    }
+    if (!page) {
+        log(LogLevel::Warning, "No watch page (" + page.status.message + "), so no new visitor data");
+        return {};
+    }
+    watchpage::VisitorData found = watchpage::visitorData(page.value.body);
+    if (found.value.empty() && !found.refused.empty()) {
+        log(LogLevel::Warning, "Refused the watch page's visitor data (" + found.refused + "), so none is sent");
+    } else if (found.value.empty()) {
+        log(LogLevel::Warning, "The watch page has no visitor data (HTTP " + std::to_string(page.value.status) + ")");
+    }
+    visitorCache.put(found.value, Clock::now());
+    return {{}, std::move(found.value)};
+}
+
+Result<VideoInfo> Resolver::Impl::askPlayer(const innertube::ClientDef &client, const std::string &visitorData,
+                                            const Call &call) const
+{
+    log(LogLevel::Debug, "Asking the " + std::string(client.key) + " client for " + call.videoId);
     const Result<HttpResponse> response =
-        send(innertube::playerRequest(*client, videoId.value, options.language, visitorData.value), request, deadline);
+        send(innertube::playerRequest(client, call.videoId, options.language, visitorData), call);
     if (!response) {
         return {response.status, {}};
     }
@@ -132,51 +220,27 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
     }
 
-    Result<VideoInfo> info = innertube::parsePlayerResponse(response.value.body, videoId.value, nowUnix(),
+    Result<VideoInfo> info = innertube::parsePlayerResponse(response.value.body, call.videoId, nowUnix(),
                                                             [this](LogLevel level, std::string_view text) { log(level, text); });
     if (info) {
-        log(LogLevel::Debug, videoId.value + ": " + std::to_string(info.value.formats.size()) + " formats, expiring at "
+        log(LogLevel::Debug, call.videoId + ": " + std::to_string(info.value.formats.size()) + " formats, expiring at "
                                  + std::to_string(info.value.expiresAtUnix));
     }
     return info;
 }
 
-// Without visitor data most player requests meet a bot check, but with none
-// the request is still worth making (some videos answer anyway), so a page
-// that fails or lacks it costs a warning, not the resolve. Only a cancel
-// ends the resolve here; a spent deadline ends it at the next send().
-Result<std::string> Resolver::Impl::fetchVisitorData(const innertube::ClientDef &client, const std::string &videoId,
-                                                     const Request &request, Clock::time_point deadline) const
-{
-    const Result<HttpResponse> page = send(watchpage::request(client, videoId), request, deadline);
-    if (page.status.code == Error::Cancelled) {
-        return {page.status, {}};
-    }
-    if (!page) {
-        log(LogLevel::Warning, "No watch page (" + page.status.message + "), so no visitor data");
-        return {};
-    }
-    watchpage::VisitorData found = watchpage::visitorData(page.value.body);
-    if (found.value.empty() && !found.refused.empty()) {
-        log(LogLevel::Warning, "Refused the watch page's visitor data (" + found.refused + "), so none is sent");
-    } else if (found.value.empty()) {
-        log(LogLevel::Warning, "The watch page has no visitor data (HTTP " + std::to_string(page.value.status) + ")");
-    }
-    return {{}, std::move(found.value)};
-}
-
 // Sends one request within what is left of the resolve's deadline.
-Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Request &request, Clock::time_point deadline) const
+Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &call) const
 {
-    if (request.cancelled && request.cancelled()) {
+    if (call.request.cancelled && call.request.cancelled()) {
         return {{Error::Cancelled, "Cancelled"}, {}};
     }
-    const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
+    const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(call.deadline - Clock::now());
     if (timeLeft.count() <= 0) {
         return {{Error::Timeout, "The resolve ran out of time"}, {}};
     }
     httpRequest.timeout = std::min(options.requestTimeout, timeLeft);
-    httpRequest.cancelled = request.cancelled;
+    httpRequest.cancelled = call.request.cancelled;
     Result<HttpResponse> response = http->send(httpRequest);
     // An error page can say what went wrong, but it is YouTube's text, not
     // ours: the log may have it, the Status message may not.

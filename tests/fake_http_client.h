@@ -2,15 +2,16 @@
 
 #include "ytres/http.h"
 
+#include <deque>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
-// Stands in for the network: the InnerTube POST gets playerBody, any other
-// request (the watch page) gets watchPage, and every request is kept for
-// the test to look at.
+// Stands in for the network: the InnerTube POST gets playerBody, or the
+// next of playerBodyQueue while it lasts, any other request (the watch page)
+// gets watchPage, and every request is kept for the test to look at.
 class FakeHttpClient : public ytres::HttpClient
 {
 public:
@@ -27,7 +28,12 @@ public:
         if (failure.code != ytres::Error::Ok) {
             return {failure, {}};
         }
-        ytres::Result<ytres::HttpResponse> result{{}, {player ? playerStatus : pageStatus, player ? playerBody : watchPage}};
+        std::string body = player ? playerBody : watchPage;
+        if (player && !playerBodyQueue.empty()) {
+            body = std::move(playerBodyQueue.front());
+            playerBodyQueue.pop_front();
+        }
+        ytres::Result<ytres::HttpResponse> result{{}, {player ? playerStatus : pageStatus, std::move(body)}};
         if (result.value.status >= 400) {
             // what the HttpClient contract asks of every client
             result.status = {ytres::Error::Http, "HTTP " + std::to_string(result.value.status)};
@@ -36,6 +42,7 @@ public:
     }
 
     std::string playerBody;
+    std::deque<std::string> playerBodyQueue; // answered in turn, ahead of playerBody
     std::string watchPage;
     long playerStatus{200};
     long pageStatus{200};
