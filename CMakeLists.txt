@@ -37,3 +37,11 @@ target_include_directories(ytres
 )
 ytres_compile_options(ytres)
 target_link_libraries(ytres PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
+
+# A harness for trying the library against live YouTube and recording
+# fixtures. It is a test rig, never the deliverable.
+add_executable(ytres_cli cli/main.cpp)
+target_link_libraries(ytres_cli PRIVATE ytres)
+# For CurlHttpClient, which --dump wraps.
+target_include_directories(ytres_cli PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+ytres_compile_options(ytres_cli)
