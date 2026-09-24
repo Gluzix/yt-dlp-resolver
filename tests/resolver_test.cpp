@@ -158,13 +158,20 @@ TEST_CASE("a spent deadline is a Timeout and sends nothing")
     CHECK(test.http->requests.empty());
 }
 
-TEST_CASE("milliseconds::max() as a deadline means no deadline, not an instant timeout")
+TEST_CASE("a deadline at either extreme does not wrap around")
 {
-    TestResolver test;
+    // max() as "no deadline" resolves rather than timing out at once...
+    TestResolver endless;
     ytres::Request request;
     request.deadline = std::chrono::milliseconds::max();
-    CHECK(test.resolver.resolve("dQw4w9WgXcQ", request));
-    CHECK(test.http->requests.size() == 2);
+    CHECK(endless.resolver.resolve("dQw4w9WgXcQ", request));
+    CHECK(endless.http->requests.size() == 2);
+
+    // ...and one far in the past is spent, not wrapped into no deadline.
+    TestResolver spent;
+    request.deadline = std::chrono::milliseconds(-10'000'000'000'000);
+    CHECK(spent.resolver.resolve("dQw4w9WgXcQ", request).status.code == Error::Timeout);
+    CHECK(spent.http->requests.empty());
 }
 
 TEST_CASE("each request gets the request timeout, never more than the deadline leaves")

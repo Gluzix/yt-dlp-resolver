@@ -98,10 +98,12 @@ Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &req
 
 Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request) const
 {
-    // steady_clock counts nanoseconds in 64 bits: milliseconds::max() as
-    // "no deadline" would wrap into the past.
+    // steady_clock counts nanoseconds in 64 bits, so an extreme deadline
+    // wraps around: milliseconds::max() as "no deadline" into the past, a
+    // hugely negative one into no deadline at all.
     const Clock::time_point deadline =
-        Clock::now() + std::min<std::chrono::milliseconds>(request.deadline, std::chrono::hours(24));
+        Clock::now() + std::clamp<std::chrono::milliseconds>(request.deadline, std::chrono::milliseconds::zero(),
+                                                              std::chrono::hours(24));
 
     const Result<std::string> videoId = parseVideoId(urlOrId);
     if (!videoId) {
