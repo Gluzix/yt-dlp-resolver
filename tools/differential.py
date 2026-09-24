@@ -42,14 +42,28 @@ def read_corpus(path):
     return entries
 
 
+def kill_tree(process):
+    """Kills process and whatever it started."""
+    if sys.platform == 'win32':
+        # yt-dlp.exe is a PyInstaller launcher that runs yt-dlp as its child.
+        # Killing the launcher alone leaves the child holding the pipes, and
+        # reading them then waits for as long as the child lives.
+        subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], capture_output=True)
+    else:
+        process.kill()
+
+
 def run(command):
     """The finished process, or None if it ran out of time, and the seconds it took."""
     start = time.monotonic()
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        done = subprocess.run(command, capture_output=True, timeout=TIMEOUT_SECONDS)
+        stdout, stderr = process.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        done = None
-    return done, time.monotonic() - start
+        kill_tree(process)
+        process.communicate()
+        return None, time.monotonic() - start
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr), time.monotonic() - start
 
 
 def last_line(data):

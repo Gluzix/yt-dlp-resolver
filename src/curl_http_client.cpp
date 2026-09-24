@@ -42,7 +42,8 @@ class Attachment
 {
 public:
     Attachment(CURLM *multi_, CURL *easy_)
-        : multi(multi_), easy(easy_)
+        : multi(multi_)
+        , easy(easy_)
     {
     }
     Attachment(const Attachment &) = delete;
@@ -80,21 +81,48 @@ size_t onBody(char *data, size_t size, size_t count, void *userdata)
     return length;
 }
 
-// A cancel check that throws is taken as a cancel: send() throws nothing,
-// and neither may a libcurl callback.
-bool isCancelled(const std::function<bool()> &cancelled) noexcept
+// The caller's cancel check, asked by send() between polls and by libcurl's
+// progress callback. No exception may unwind through libcurl's C frames,
+// and send() throws nothing: a check that throws stops the transfer as a
+// cancel would, and threw has send() report Internal, since a check that
+// throws is the caller's bug, not a cancel.
+class CancelCheck
 {
-    try {
-        return cancelled && cancelled();
-    } catch (...) {
-        return true;
+public:
+    explicit CancelCheck(const std::function<bool()> &cancelled_)
+        : cancelled(cancelled_)
+    {
     }
-}
+
+    bool operator()() noexcept
+    {
+        try {
+            return cancelled && cancelled();
+        } catch (...) {
+            threw = true;
+            return true;
+        }
+    }
+
+    bool threw{false};
+
+private:
+    const std::function<bool()> &cancelled;
+};
 
 // Non-zero aborts the transfer with CURLE_ABORTED_BY_CALLBACK.
 int onProgress(void *clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
 {
-    return isCancelled(*static_cast<const std::function<bool()> *>(clientp)) ? 1 : 0;
+    return (*static_cast<CancelCheck *>(clientp))() ? 1 : 0;
+}
+
+// What a transfer the cancel check stopped comes back as.
+Result<HttpResponse> stoppedBy(const CancelCheck &check)
+{
+    if (check.threw) {
+        return {{Error::Internal, "The cancel check threw"}, {}};
+    }
+    return {{Error::Cancelled, "Cancelled"}, {}};
 }
 
 // The result of the one transfer on multi once it has finished; nullopt if
@@ -124,8 +152,11 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     if (request.timeout.count() <= 0) {
         return {{Error::Timeout, "No time left to send the request"}, {}};
     }
-    if (isCancelled(request.cancelled)) {
-        return {{Error::Cancelled, "Cancelled"}, {}};
+    // Declared before the handles, so that it outlives them: the progress
+    // callback keeps a pointer to it for as long as the easy handle lives.
+    CancelCheck cancelCheck(request.cancelled);
+    if (cancelCheck()) {
+        return stoppedBy(cancelCheck);
     }
 
     std::unique_ptr<CURLM, MultiDeleter> multi(curl_multi_init());
@@ -166,7 +197,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     if (request.cancelled) {
         curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(handle, CURLOPT_XFERINFOFUNCTION, onProgress);
-        curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &request.cancelled);
+        curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &cancelCheck);
     }
 
     if (curl_multi_add_handle(multi.get(), handle) != CURLM_OK) {
@@ -185,8 +216,8 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
         if (multiCode != CURLM_OK || running == 0) {
             break;
         }
-        if (isCancelled(request.cancelled)) {
-            return {{Error::Cancelled, "Cancelled"}, {}};
+        if (cancelCheck()) {
+            return stoppedBy(cancelCheck);
         }
         multiCode = curl_multi_poll(multi.get(), nullptr, 0, POLL_MS, nullptr);
         if (multiCode != CURLM_OK) {
@@ -204,7 +235,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
 
     const CURLcode code = *finished;
     if (code == CURLE_ABORTED_BY_CALLBACK) {
-        return {{Error::Cancelled, "Cancelled"}, {}};
+        return stoppedBy(cancelCheck);
     }
     if (code == CURLE_OPERATION_TIMEDOUT) {
         return {{Error::Timeout, curl_easy_strerror(code)}, {}};

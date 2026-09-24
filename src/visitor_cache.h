@@ -36,8 +36,8 @@ public:
 
     Entry get(Clock::time_point now) const;
 
-    // An empty value is ignored: it would only push out one that may still work.
-    void put(std::string value, Clock::time_point now);
+    // An empty newValue is ignored: it would only push out one that may still work.
+    void put(std::string newValue, Clock::time_point now);
 
 private:
     mutable std::mutex mutex;

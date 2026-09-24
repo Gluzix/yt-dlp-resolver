@@ -38,8 +38,9 @@ enum class Error {
     BadInput,
     // YouTube wants proof that the caller is no bot ("Sign in to confirm
     // you're not a bot"). It is about who asks, not about the video, and the
-    // library has already fetched fresh visitor data and asked once more:
-    // fall back to another resolver.
+    // library has tried once to fetch fresh visitor data and, when it got
+    // some, asked once more: fall back to another resolver, and stop asking
+    // this one for a while.
     BotCheck,
     // A bug or a resource failure inside the library - an exception, an
     // exhausted heap, libcurl unable to make a handle - never YouTube's
@@ -125,10 +126,10 @@ public:
     struct Options
     {
         // The client ladder, tried in order until one gives formats. A
-        // failure about the client - BotCheck, NoFormats, Http, Parse -
-        // passes the video on to the next; one about the video, the network,
-        // the call or the library ends the resolve there. Empty, or an id
-        // the library does not know, is BadInput.
+        // failure about the client - BotCheck, NoFormats, Http, Parse,
+        // PlayerScript - passes the video on to the next; one about the
+        // video, the network, the call or the library ends the resolve there.
+        // Empty, or an id the library does not know, is BadInput.
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
@@ -142,6 +143,7 @@ public:
         // May be empty.
         std::function<void(LogLevel, std::string_view)> log;
         // Bounds each HTTP request; Request::deadline bounds the whole resolve.
+        // Zero or less is BadInput.
         std::chrono::milliseconds requestTimeout{std::chrono::seconds{10}};
     };
 
@@ -161,8 +163,9 @@ public:
     // A warm Resolver asks the player API alone: one request. A cold one
     // first fetches a watch page (about 1.3 MB) for the visitor data without
     // which YouTube bot-checks most videos, and keeps it for up to 6 hours
-    // for every later resolve on any thread. A bot check fetches the page
-    // once more and asks once more, within the same deadline.
+    // for every later resolve on any thread. A bot check makes it try once
+    // to fetch fresh visitor data and, when it gets some, ask once more,
+    // within the same deadline.
     // When every client in the ladder fails, the result carries the most
     // telling of their codes - BotCheck, then Http, then Parse, then
     // NoFormats or PlayerScript - and its message names each client with

@@ -123,8 +123,10 @@ TEST_CASE("every video in the corpus resolves as the corpus says")
         CHECK(result.value.webpageUrl == "https://www.youtube.com/watch?v=" + entry.id);
         CHECK(result.value.expiresAtUnix > nowUnix());
         const std::optional<ytres::Format> best = result.value.bestAudio();
-        REQUIRE(best.has_value());
-        CHECK(best->url.rfind("https://", 0) == 0);
+        CHECK(best.has_value()); // not REQUIRE: one video's miss must not hide the rest
+        if (best) {
+            CHECK(best->url.rfind("https://", 0) == 0);
+        }
     }
 }
 

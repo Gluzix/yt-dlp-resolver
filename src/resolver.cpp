@@ -158,6 +158,11 @@ Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &req
 
 Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request)
 {
+    // Every request would fail as a Timeout, which reads as the network's
+    // fault; the fault is the caller's.
+    if (options.requestTimeout <= std::chrono::milliseconds::zero()) {
+        return {{Error::BadInput, "Options::requestTimeout must be positive"}, {}};
+    }
     // steady_clock counts nanoseconds in 64 bits, so an extreme deadline
     // wraps around: milliseconds::max() as "no deadline" into the past, a
     // hugely negative one into no deadline at all.

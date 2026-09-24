@@ -24,10 +24,14 @@
 //   libcurl calls it only about once a second while it waits for DNS, a
 //   connection or the first byte.
 // - CURLOPT_QUICK_EXIT lets a cancel or a timeout during a threaded DNS
-//   lookup return at once: libcurl detaches the lookup thread, which cleans
-//   up after itself once getaddrinfo returns, instead of waiting for it.
+//   lookup return at once: libcurl detaches the lookup thread instead of
+//   waiting for it. That thread runs on until getaddrinfo returns - seconds,
+//   on a resolver that hangs - and then cleans up after itself. A few such
+//   threads at a time are acceptable for the bot.
 // - Redirects are not followed: nothing the resolver asks for redirects, and
 //   a 3xx comes back as it is.
+// - A cancel check that throws is the caller's bug: the transfer stops as
+//   for a cancel, and send() reports Internal, not Cancelled.
 // - A Status message is fixed English: curl_easy_strerror's,
 //   curl_multi_strerror's, one of ours, or "HTTP <n>". Never the error
 //   buffer: Schannel fills that through FormatMessage in the local code

@@ -1,6 +1,7 @@
 find_package(doctest CONFIG REQUIRED)
 
-# Offline by construction: every Resolver in here gets a FakeHttpClient.
+# Offline by construction: every Resolver in here gets a FakeHttpClient, and
+# the libcurl client is only asked what it answers before sending anything.
 add_executable(ytres_tests
     main.cpp
     fake_http_client.h
@@ -15,6 +16,7 @@ add_executable(ytres_tests
     client_ladder_test.cpp
     deadline_test.cpp
     concurrency_test.cpp
+    curl_http_client_test.cpp
 )
 target_link_libraries(ytres_tests PRIVATE ytres doctest::doctest nlohmann_json::nlohmann_json)
 # The internals are tested directly, not only through the public API.

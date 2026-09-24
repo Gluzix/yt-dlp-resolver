@@ -8,6 +8,7 @@
 #include <chrono>
 #include <memory>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -91,6 +92,28 @@ TEST_CASE("a resolve cancelled up front sends nothing")
     request.cancelled = [] { return true; };
     CHECK(test.resolver.resolve("dQw4w9WgXcQ", request).status.code == Error::Cancelled);
     CHECK(test.http->requests.empty());
+}
+
+TEST_CASE("a cancel check that throws is Internal: the caller's bug, not a cancel")
+{
+    TestResolver test;
+    ytres::Request request;
+    request.cancelled = []() -> bool { throw std::runtime_error("the check broke"); };
+    const auto result = test.resolver.resolve("dQw4w9WgXcQ", request);
+    CHECK(result.status.code == Error::Internal);
+    CHECK(test.http->requests.empty());
+}
+
+TEST_CASE("a request timeout of zero or less is BadInput, and nothing is sent")
+{
+    for (const std::chrono::milliseconds timeout : {0ms, -5ms}) {
+        CAPTURE(timeout.count());
+        TestResolver test(WATCH_PAGE, timeout);
+        const auto result = test.resolver.resolve("dQw4w9WgXcQ");
+        CHECK(result.status.code == Error::BadInput);
+        CHECK(result.status.message == "Options::requestTimeout must be positive");
+        CHECK(test.http->requests.empty());
+    }
 }
 
 TEST_CASE("the cancel check travels with every request")
