@@ -5,6 +5,7 @@
 #include <climits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace ytres {
@@ -24,9 +25,33 @@ struct EasyDeleter
     void operator()(CURL *easy) const { curl_easy_cleanup(easy); }
 };
 
+struct MultiDeleter
+{
+    void operator()(CURLM *multi) const { curl_multi_cleanup(multi); }
+};
+
 struct SlistDeleter
 {
     void operator()(curl_slist *list) const { curl_slist_free_all(list); }
+};
+
+// Takes the easy handle off the multi handle when send() returns, however it
+// returns. Declared after both handles, so it runs before either cleanup:
+// the order libcurl documents.
+class Attachment
+{
+public:
+    Attachment(CURLM *multi_, CURL *easy_)
+        : multi(multi_), easy(easy_)
+    {
+    }
+    Attachment(const Attachment &) = delete;
+    Attachment &operator=(const Attachment &) = delete;
+    ~Attachment() { curl_multi_remove_handle(multi, easy); }
+
+private:
+    CURLM *multi;
+    CURL *easy;
 };
 
 struct Body
@@ -53,15 +78,34 @@ size_t onBody(char *data, size_t size, size_t count, void *userdata)
     return length;
 }
 
+// A cancel check that throws is taken as a cancel: send() throws nothing,
+// and neither may a libcurl callback.
+bool isCancelled(const std::function<bool()> &cancelled) noexcept
+{
+    try {
+        return cancelled && cancelled();
+    } catch (...) {
+        return true;
+    }
+}
+
 // Non-zero aborts the transfer with CURLE_ABORTED_BY_CALLBACK.
 int onProgress(void *clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
 {
-    const auto *cancelled = static_cast<const std::function<bool()> *>(clientp);
-    try {
-        return (*cancelled)() ? 1 : 0;
-    } catch (...) {
-        return 1; // a cancel check that throws is taken as a cancel
+    return isCancelled(*static_cast<const std::function<bool()> *>(clientp)) ? 1 : 0;
+}
+
+// The result of the one transfer on multi once it has finished; nullopt if
+// libcurl reports none, which it should never do.
+std::optional<CURLcode> transferResult(CURLM *multi)
+{
+    int queued = 0;
+    while (const CURLMsg *message = curl_multi_info_read(multi, &queued)) {
+        if (message->msg == CURLMSG_DONE) {
+            return message->data.result;
+        }
     }
+    return std::nullopt;
 }
 
 }
@@ -78,12 +122,13 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     if (request.timeout.count() <= 0) {
         return {{Error::Timeout, "No time left to send the request"}, {}};
     }
-    if (request.cancelled && request.cancelled()) {
+    if (isCancelled(request.cancelled)) {
         return {{Error::Cancelled, "Cancelled"}, {}};
     }
 
+    std::unique_ptr<CURLM, MultiDeleter> multi(curl_multi_init());
     std::unique_ptr<CURL, EasyDeleter> easy(curl_easy_init());
-    if (!easy) {
+    if (!multi || !easy) {
         return {{Error::Network, "libcurl could not create a handle"}, {}};
     }
     std::unique_ptr<curl_slist, SlistDeleter> headers;
@@ -113,6 +158,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, timeoutMs);
     curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, timeoutMs);
     curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(handle, CURLOPT_QUICK_EXIT, 1L);
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, onBody);
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &body);
     if (request.cancelled) {
@@ -121,7 +167,39 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
         curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &request.cancelled);
     }
 
-    const CURLcode code = curl_easy_perform(handle);
+    if (curl_multi_add_handle(multi.get(), handle) != CURLM_OK) {
+        return {{Error::Network, "libcurl could not start the transfer"}, {}};
+    }
+    const Attachment attachment(multi.get(), handle);
+
+    // The one transfer runs until it finishes. Between polls the cancel is
+    // checked, so it lands within POLL_MS even while libcurl waits for DNS, a
+    // connection or the first byte; a poll returns early whenever there is
+    // data, or a timer of libcurl's own - the timeout's among them - is due.
+    CURLMcode multiCode = CURLM_OK;
+    for (;;) {
+        int running = 0;
+        multiCode = curl_multi_perform(multi.get(), &running);
+        if (multiCode != CURLM_OK || running == 0) {
+            break;
+        }
+        if (isCancelled(request.cancelled)) {
+            return {{Error::Cancelled, "Cancelled"}, {}};
+        }
+        multiCode = curl_multi_poll(multi.get(), nullptr, 0, POLL_MS, nullptr);
+        if (multiCode != CURLM_OK) {
+            break;
+        }
+    }
+    if (multiCode != CURLM_OK) {
+        return {{Error::Network, curl_multi_strerror(multiCode)}, {}};
+    }
+    const std::optional<CURLcode> finished = transferResult(multi.get());
+    if (!finished) {
+        return {{Error::Network, "libcurl lost track of the transfer"}, {}};
+    }
+
+    const CURLcode code = *finished;
     if (code == CURLE_ABORTED_BY_CALLBACK) {
         return {{Error::Cancelled, "Cancelled"}, {}};
     }
