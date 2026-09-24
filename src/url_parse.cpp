@@ -23,6 +23,17 @@ bool endsWith(std::string_view text, std::string_view suffix)
     return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
 }
 
+// Lower-case letters, digits, dots and dashes, as a lowered host name has.
+bool isPlainHost(std::string_view host)
+{
+    for (char c : host) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string_view trim(std::string_view text)
 {
     const std::string_view spaces = " \t\r\n";
@@ -83,8 +94,8 @@ Result<std::string> parseVideoId(std::string_view urlOrId)
         rest.remove_prefix(7);
     }
 
-    // The host ends where the path, query or fragment starts. A port or a
-    // user@ part stays in it and so fails the comparisons below.
+    // The host ends where the path, query or fragment starts. One carrying
+    // a user@ or a :port is no plain YouTube link, however it ends.
     const size_t hostEnd = rest.find_first_of("/?#");
     const std::string host = asciiLower(rest.substr(0, hostEnd));
     const std::string_view path = hostEnd == std::string_view::npos ? std::string_view{} : rest.substr(hostEnd);
@@ -92,7 +103,7 @@ Result<std::string> parseVideoId(std::string_view urlOrId)
     std::string_view id;
     if (host == "youtu.be") {
         id = startsWith(path, "/") ? segmentAfter(path, "/") : std::string_view{};
-    } else if (host == "youtube.com" || endsWith(host, ".youtube.com")) {
+    } else if (isPlainHost(host) && (host == "youtube.com" || endsWith(host, ".youtube.com"))) {
         id = idInYoutubePath(path);
     }
     if (!isVideoId(id)) {
