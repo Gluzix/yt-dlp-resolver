@@ -2,6 +2,7 @@
 #include "watch_page.h"
 
 #include <doctest/doctest.h>
+#include <nlohmann/json.hpp>
 
 #include <string>
 
@@ -49,4 +50,19 @@ TEST_CASE("the watch page request carries the client's user agent and nothing el
     CHECK(request.headers[0].first == "User-Agent");
     CHECK(request.headers[0].second == client->userAgent);
     CHECK(request.body.empty());
+}
+
+TEST_CASE("visitor data that could not travel safely as a header counts as none")
+{
+    const auto page = [](const std::string &value) {
+        nlohmann::json config;
+        config["INNERTUBE_CONTEXT"]["client"]["visitorData"] = value;
+        return "ytcfg.set(" + config.dump() + ");";
+    };
+    CHECK(visitorData(page("CgtGSVhUVVJFAAAA%3D%3D_-=")) == "CgtGSVhUVVJFAAAA%3D%3D_-=");
+    CHECK(visitorData(page(std::string(1024, 'A'))) == std::string(1024, 'A'));
+    CHECK(visitorData(page(std::string(1025, 'A'))).empty());
+    CHECK(visitorData(page("CgtGSVhUVVJF\r\nX-Injected: 1")).empty());
+    CHECK(visitorData(page("CgtGSVhU VVJF")).empty());
+    CHECK(visitorData(page("")).empty());
 }

@@ -17,8 +17,9 @@ namespace ytres::watchpage {
 HttpRequest request(const innertube::ClientDef &client, const std::string &videoId);
 
 // INNERTUBE_CONTEXT.client.visitorData out of the first ytcfg.set({...}) in
-// the page that has it; empty when none does. Pure, like everything that
-// reads YouTube's answers.
+// the page that has it; empty when none does. A value that is not 1 to 1024
+// characters of [A-Za-z0-9%_=-] counts as none: it is sent as a header.
+// Pure, like everything that reads YouTube's answers.
 std::string visitorData(std::string_view html);
 
 }

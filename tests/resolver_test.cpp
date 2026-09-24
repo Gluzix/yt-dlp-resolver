@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using ytres::Error;
@@ -21,7 +22,7 @@ const std::string WATCH_PAGE =
     R"(<script>ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtGSVhUVVJFAAAA%3D%3D"}}});</script>)";
 
 // A Resolver on a FakeHttpClient that answers with the recorded
-// dQw4w9WgXcQ response, keeping the levels of whatever it logs.
+// dQw4w9WgXcQ response, keeping whatever it logs.
 class TestResolver
 {
 public:
@@ -33,11 +34,22 @@ public:
 
     bool logged(ytres::LogLevel level) const
     {
-        return std::find(levels.begin(), levels.end(), level) != levels.end();
+        return std::any_of(logs.begin(), logs.end(), [level](const auto &entry) { return entry.first == level; });
+    }
+
+    // The first line logged at level that contains text; null if none.
+    const std::string *logLine(ytres::LogLevel level, const std::string &text) const
+    {
+        for (const auto &[loggedLevel, line] : logs) {
+            if (loggedLevel == level && line.find(text) != std::string::npos) {
+                return &line;
+            }
+        }
+        return nullptr;
     }
 
     std::shared_ptr<FakeHttpClient> http;
-    std::vector<ytres::LogLevel> levels;
+    std::vector<std::pair<ytres::LogLevel, std::string>> logs;
     ytres::Resolver resolver;
 
 private:
@@ -45,7 +57,7 @@ private:
     {
         ytres::Resolver::Options made;
         made.http = http;
-        made.log = [this](ytres::LogLevel level, std::string_view) { levels.push_back(level); };
+        made.log = [this](ytres::LogLevel level, std::string_view text) { logs.emplace_back(level, std::string(text)); };
         made.requestTimeout = requestTimeout;
         return made;
     }
@@ -179,6 +191,31 @@ TEST_CASE("an HTTP error from the player is Http")
     const auto result = test.resolver.resolve("dQw4w9WgXcQ");
     CHECK(result.status.code == Error::Http);
     CHECK(result.status.message.find("403") != std::string::npos);
+}
+
+TEST_CASE("the start of an error page goes to the Debug log, not into the message")
+{
+    TestResolver test;
+    test.http->playerStatus = 429;
+    test.http->playerBody = "<html>\nQuota exceeded" + std::string(500, 'x');
+    const auto result = test.resolver.resolve("dQw4w9WgXcQ");
+    CHECK(result.status.code == Error::Http);
+    CHECK(result.status.message.find("Quota") == std::string::npos);
+
+    const std::string *line = test.logLine(ytres::LogLevel::Debug, "HTTP 429 from https://www.youtube.com/youtubei/v1/player");
+    REQUIRE(line != nullptr);
+    CHECK(line->find("<html> Quota exceeded") != std::string::npos); // one line
+    CHECK(line->find(std::string(200, 'x')) == std::string::npos);    // cut at 200 bytes of body
+
+    // The cut never lands inside a UTF-8 sequence: "\xC5\xBC" (z with dot) straddles byte 200.
+    TestResolver polish;
+    polish.http->playerStatus = 429;
+    polish.http->playerBody = std::string(199, 'a') + "\xC5\xBC" + "b";
+    CHECK_FALSE(polish.resolver.resolve("dQw4w9WgXcQ"));
+    const std::string *cut = polish.logLine(ytres::LogLevel::Debug, "HTTP 429 from ");
+    REQUIRE(cut != nullptr);
+    CHECK(cut->size() >= 199);
+    CHECK(cut->substr(cut->size() - 199) == std::string(199, 'a'));
 }
 
 TEST_CASE("a player status outside 2xx that the client let through is Http too")

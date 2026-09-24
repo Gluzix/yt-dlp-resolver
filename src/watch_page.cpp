@@ -10,6 +10,8 @@ namespace {
 
 using nlohmann::json;
 
+const size_t MAX_VISITOR_DATA = 1024;
+
 // One past the brace that closes the JSON object opening at text[open];
 // npos if it never closes. Braces inside strings do not count.
 size_t objectEnd(std::string_view text, size_t open)
@@ -42,12 +44,34 @@ const json *member(const json &object, const char *key)
     return it != object.end() ? &*it : nullptr;
 }
 
+// The value becomes an HTTP header, so only what base64url and percent
+// encoding use gets through: a CR or LF in a doctored page must never split
+// the request. YouTube's is 558 characters today.
+bool isHeaderSafe(const std::string &value)
+{
+    if (value.empty() || value.size() > MAX_VISITOR_DATA) {
+        return false;
+    }
+    for (char c : value) {
+        const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                             || c == '%' || c == '_' || c == '=' || c == '-';
+        if (!allowed) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string visitorDataIn(const json &config)
 {
     const json *context = member(config, "INNERTUBE_CONTEXT");
     const json *client = context ? member(*context, "client") : nullptr;
     const json *visitorData = client ? member(*client, "visitorData") : nullptr;
-    return visitorData && visitorData->is_string() ? visitorData->get<std::string>() : std::string{};
+    if (!visitorData || !visitorData->is_string()) {
+        return {};
+    }
+    std::string value = visitorData->get<std::string>();
+    return isHeaderSafe(value) ? value : std::string{};
 }
 
 }

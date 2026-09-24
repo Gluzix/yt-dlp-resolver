@@ -2,6 +2,8 @@
 
 #include "ytres/http.h"
 
+#include <cstddef>
+
 // The HttpClient a Resolver builds when it is given none: libcurl.
 // =======================================================
 // Rules:
@@ -21,6 +23,13 @@
 //   second to land.
 // - Redirects are not followed: nothing the resolver asks for redirects, and
 //   a 3xx comes back as it is.
+// - A Status message is curl_easy_strerror's fixed English, or "HTTP <n>".
+//   Never the error buffer: Schannel fills that through FormatMessage in the
+//   local code page. The start of an error page is left in value for the
+//   caller to log.
+// - send() asks for gzip or deflate, as yt-dlp's HTTP layer does: the watch
+//   page shrinks from 1.3 MB to about 150 KB on the wire. MAX_BODY_BYTES
+//   bounds what it keeps once decoded.
 // =======================================================
 namespace ytres {
 
@@ -29,8 +38,9 @@ class CurlHttpClient : public HttpClient
 public:
     Result<HttpResponse> send(const HttpRequest &request) override;
 
-private:
-    static const size_t ERROR_BODY_PREFIX = 200;
+    // Far past anything the resolver asks for: the watch page is 1.3 MB, a
+    // player response 90 KB. More than this is no answer worth reading.
+    static const size_t MAX_BODY_BYTES = 8 * 1024 * 1024;
 };
 
 }

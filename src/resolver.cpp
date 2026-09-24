@@ -17,9 +17,28 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+const size_t ERROR_EXCERPT_BYTES = 200;
+
 std::int64_t nowUnix()
 {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+// The start of an error page for the log: one line, cut on a character
+// boundary.
+std::string bodyExcerpt(const std::string &body, size_t maxBytes)
+{
+    size_t end = body.size() < maxBytes ? body.size() : maxBytes;
+    while (end > 0 && end < body.size() && (static_cast<unsigned char>(body[end]) & 0xC0) == 0x80) {
+        --end; // never split a UTF-8 sequence
+    }
+    std::string excerpt = body.substr(0, end);
+    for (char &c : excerpt) {
+        if (static_cast<unsigned char>(c) < 0x20) {
+            c = ' ';
+        }
+    }
+    return excerpt;
 }
 
 }
@@ -150,7 +169,14 @@ Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Request
     }
     httpRequest.timeout = std::min(options.requestTimeout, timeLeft);
     httpRequest.cancelled = request.cancelled;
-    return http->send(httpRequest);
+    Result<HttpResponse> response = http->send(httpRequest);
+    // An error page can say what went wrong, but it is YouTube's text, not
+    // ours: the log may have it, the Status message may not.
+    if (response.status.code == Error::Http && !response.value.body.empty()) {
+        log(LogLevel::Debug, response.status.message + " from " + httpRequest.url + ": "
+                                 + bodyExcerpt(response.value.body, ERROR_EXCERPT_BYTES));
+    }
+    return response;
 }
 
 }
