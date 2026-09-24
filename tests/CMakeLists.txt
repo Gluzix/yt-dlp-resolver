@@ -23,3 +23,14 @@ target_compile_definitions(ytres_tests PRIVATE YTRES_FIXTURES="${CMAKE_CURRENT_S
 ytres_compile_options(ytres_tests)
 
 add_test(NAME ytres_tests COMMAND ytres_tests)
+
+# Touches live YouTube and the network stack, so it is built with the rest
+# but never added to ctest: README.md, "Live tests", says how to run it.
+add_executable(ytres_live_tests
+    main.cpp
+    live_test.cpp
+    corpus.txt
+)
+target_link_libraries(ytres_live_tests PRIVATE ytres doctest::doctest)
+target_compile_definitions(ytres_live_tests PRIVATE YTRES_CORPUS="${CMAKE_CURRENT_SOURCE_DIR}/corpus.txt")
+ytres_compile_options(ytres_live_tests)

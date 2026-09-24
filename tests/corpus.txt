@@ -1,0 +1,13 @@
+# The live corpus: the videos ytres_live_tests and tools/differential.py
+# resolve against live YouTube. One per line: the id, the Error ytres_cli
+# should report for it (Ok for one that plays), and after a # what it is for.
+# Found with yt-dlp --flat-playlist --print id "ytsearch1:<query>" and
+# confirmed with ytres_cli on 2026-09-24. Videos go away; when one does, find
+# another of its kind rather than change what the line expects.
+dQw4w9WgXcQ  Ok             # an ordinary video, the one the POC was built on
+MxWXAIWsppY  Ok             # a Polish title, Dawid Podsiadło "na błysk" (search "Dawid Podsiadło": the first hit is his channel, this the first video)
+f1A7SdVTlok  Ok             # over an hour: "10 hour timer", 36005 s (search "10 hours")
+rFZHOHl-L8A  NoFormats      # a 24/7 live stream, Lofi Girl's radio: live formats need the HLS manifest (search "lofi girl live")
+lYBUbBu4W08  Ok             # an auto-generated upload of "Rick Astley - Topic" (search "Rick Astley Topic Never Gonna Give You Up auto-generated")
+EX_8ZjT2sO4  AgeRestricted  # age-restricted: "Sign in to confirm your age" (search "age restricted music video": the first hit only says so in its title)
+00000000000  Unavailable    # no such video: "This video is unavailable"
