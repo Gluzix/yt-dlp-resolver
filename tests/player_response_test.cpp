@@ -88,7 +88,8 @@ TEST_CASE("playability failures map to specific errors")
     };
     const Case cases[] = {
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::BotCheck},
-        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm youâ€™re not a bot"})", Error::BotCheck},
+        // with the curly apostrophe YouTube sends, as JSON escapes it
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you\u2019re not a bot"})", Error::BotCheck},
         {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::Unavailable},
         {R"({"status":"LOGIN_REQUIRED","reason":"Private video"})", Error::Unavailable},
         // "private" alone is not the phrase: this is still the bot check
@@ -103,7 +104,7 @@ TEST_CASE("playability failures map to specific errors")
         {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube"})", Error::AgeRestricted},
         {R"({"status":"CONTENT_CHECK_REQUIRED","reason":"Viewer discretion is advised"})", Error::Unavailable},
         // a refused client, whatever the reason says: by its Reload button in any language, else by the phrase
-        {R"({"status":"UNPLAYABLE","reason":"Film jest niedostÄ™pny","errorScreen":{"playerErrorMessageRenderer":)"
+        {R"({"status":"UNPLAYABLE","reason":"Film jest niedost\u0119pny","errorScreen":{"playerErrorMessageRenderer":)"
          R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::NoFormats},
         {R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
          R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::NoFormats},
