@@ -43,6 +43,8 @@ const char *errorName(ytres::Error error)
     case ytres::Error::NoFormats: return "NoFormats";
     case ytres::Error::PlayerScript: return "PlayerScript";
     case ytres::Error::BadInput: return "BadInput";
+    case ytres::Error::BotCheck: return "BotCheck";
+    case ytres::Error::Internal: return "Internal";
     }
     return "Unknown";
 }

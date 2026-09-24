@@ -63,11 +63,11 @@ TEST_CASE("the recorded unavailable response is Unavailable with YouTube's reaso
     CHECK(result.status.message == "This video is unavailable");
 }
 
-TEST_CASE("the recorded bot check is LoginRequired with YouTube's reason")
+TEST_CASE("the recorded bot check is BotCheck with YouTube's reason")
 {
     // What a player request without visitor data got for jNQXAC9IVRw.
     const auto result = resolveWithFixture("player_bot_check.json", "jNQXAC9IVRw");
-    CHECK(result.status.code == Error::LoginRequired);
+    CHECK(result.status.code == Error::BotCheck);
     CHECK(result.status.message.find("not a bot") != std::string::npos);
 }
 
@@ -79,12 +79,16 @@ TEST_CASE("playability failures map to specific errors")
         Error expected;
     };
     const Case cases[] = {
-        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::BotCheck},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm youâ€™re not a bot"})", Error::BotCheck},
         {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::Unavailable},
         {R"({"status":"LOGIN_REQUIRED","reason":"Private video"})", Error::Unavailable},
         // "private" alone is not the phrase: this is still the bot check
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot","errorScreen":{"playerErrorMessageRenderer":)"
-         R"({"subreason":{"simpleText":"Your answers stay private"}}}})", Error::LoginRequired},
+         R"({"subreason":{"simpleText":"Your answers stay private"}}}})", Error::BotCheck},
+        // a sign-in wall that is no bot check stays LoginRequired, reason or none
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to view this video"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED"})", Error::LoginRequired},
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"})", Error::AgeRestricted},
         {R"({"status":"ERROR","reason":"This video has been removed by the uploader"})", Error::Unavailable},
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},

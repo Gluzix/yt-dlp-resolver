@@ -1,7 +1,6 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
-#include "ascii.h"
 #include "innertube.h"
 #include "url_parse.h"
 #include "visitor_cache.h"
@@ -40,14 +39,6 @@ std::string bodyExcerpt(const std::string &body, size_t maxBytes)
         }
     }
     return excerpt;
-}
-
-// "Sign in to confirm you're not a bot" is about who asks, not about the
-// video, so other visitor data may get past it. It arrives as LoginRequired
-// and only its reason tells it from a real sign-in wall.
-bool isBotCheck(const Status &status)
-{
-    return status.code == Error::LoginRequired && asciiLower(status.message).find("not a bot") != std::string::npos;
 }
 
 }
@@ -103,17 +94,18 @@ Resolver::~Resolver() = default;
 
 Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &request)
 {
-    // No exception crosses the public API. The enum has no code for a bug or
-    // an exhausted heap; Parse is the nearest.
+    // No exception crosses the public API. One that gets this far is a bug
+    // or an exhausted heap, never YouTube's doing: Internal, so that nobody
+    // reads it as a client that stopped working.
     try {
         if (!impl) {
             return {{Error::BadInput, "This Resolver has been moved from"}, {}};
         }
         return impl->resolve(urlOrId, request);
     } catch (const std::exception &e) {
-        return {{Error::Parse, std::string("Unexpected failure: ") + e.what()}, {}};
+        return {{Error::Internal, std::string("Unexpected failure: ") + e.what()}, {}};
     } catch (...) {
-        return {{Error::Parse, "Unexpected failure"}, {}};
+        return {{Error::Internal, "Unexpected failure"}, {}};
     }
 }
 
@@ -142,7 +134,7 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         return {visitorData.status, {}};
     }
     Result<VideoInfo> info = askPlayer(*client, visitorData.value, call);
-    if (!isBotCheck(info.status)) {
+    if (info.status.code != Error::BotCheck) {
         return info;
     }
 

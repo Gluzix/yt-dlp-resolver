@@ -110,7 +110,7 @@ TEST_CASE("a second bot check is the answer: one retry, no more")
     TestResolver test;
     test.http->playerBody = readFixture("player_bot_check.json");
     const auto result = test.resolver.resolve("jNQXAC9IVRw");
-    CHECK(result.status.code == Error::LoginRequired);
+    CHECK(result.status.code == Error::BotCheck);
     CHECK(result.status.message.find("not a bot") != std::string::npos);
     CHECK(test.http->requests.size() == 4); // page, player, page, player
 }
@@ -122,7 +122,7 @@ TEST_CASE("a page that fails after a bot check keeps the cached value and asks n
     test.http->pageFailure = {Error::Network, "Couldn't connect to server"};
     test.http->playerBodyQueue.push_back(readFixture("player_bot_check.json"));
 
-    CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::LoginRequired);
+    CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::BotCheck);
     REQUIRE(test.http->requests.size() == 4); // page, player; player (bot check), page
     CHECK(test.logLine(ytres::LogLevel::Warning, "No watch page (Couldn't connect to server)") != nullptr);
 

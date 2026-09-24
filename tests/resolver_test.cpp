@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <memory>
+#include <new>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -200,6 +201,40 @@ TEST_CASE("a failed player request passes its status on")
     TestResolver test;
     test.http->playerFailure = {Error::Timeout, "Timeout was reached"};
     CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::Timeout);
+}
+
+TEST_CASE("an exception that reaches resolve() is Internal, never a client's failure")
+{
+    // Breaks the HttpClient contract on purpose: send() must not throw.
+    class ThrowingHttpClient : public ytres::HttpClient
+    {
+    public:
+        explicit ThrowingHttpClient(bool standard_)
+            : standard(standard_)
+        {
+        }
+
+        ytres::Result<ytres::HttpResponse> send(const ytres::HttpRequest &) override
+        {
+            if (standard) {
+                throw std::bad_alloc();
+            }
+            throw 42;
+        }
+
+    private:
+        bool standard;
+    };
+
+    for (const bool standard : {true, false}) {
+        CAPTURE(standard);
+        ytres::Resolver::Options options;
+        options.http = std::make_shared<ThrowingHttpClient>(standard);
+        ytres::Resolver resolver(options);
+        const auto result = resolver.resolve("dQw4w9WgXcQ");
+        CHECK(result.status.code == Error::Internal);
+        CHECK(result.status.message.find("Unexpected failure") == 0);
+    }
 }
 
 static_assert(std::is_nothrow_move_constructible_v<ytres::Resolver>);

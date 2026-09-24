@@ -36,6 +36,15 @@ enum class Error {
     NoFormats,       // playable, but nothing usable came back
     PlayerScript,    // base.js fetch or extraction failed (JS tier only)
     BadInput,
+    // YouTube wants proof that the caller is no bot ("Sign in to confirm
+    // you're not a bot"). It is about who asks, not about the video, and the
+    // library has already fetched fresh visitor data and asked once more:
+    // fall back to another resolver.
+    BotCheck,
+    // A bug or a resource failure inside the library - an exception, an
+    // exhausted heap, libcurl unable to make a handle - never YouTube's
+    // doing. Log it as a bug; another resolver may still get the video.
+    Internal,
 };
 
 struct Status
@@ -113,9 +122,10 @@ public:
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
-        // another language an age gate or a private video reports as
-        // LoginRequired and a region block as Unavailable. country is not
-        // sent yet: the player request yt-dlp makes carries no gl.
+        // another language an age gate, a private video or the bot check
+        // reports as LoginRequired - and the bot check gets no second try -
+        // and a region block as Unavailable. country is not sent yet: the
+        // player request yt-dlp makes carries no gl.
         std::string language{"en"}, country{"US"};
         std::shared_ptr<HttpClient> http;                   // null -> built-in libcurl
         // Called on the resolving thread, so it must cope with several at once.

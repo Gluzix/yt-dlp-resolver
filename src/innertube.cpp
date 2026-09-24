@@ -211,7 +211,7 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
     }
     const std::string text = reason + " " + subreason;
     // Age gates and private videos arrive as LOGIN_REQUIRED too, so the reason
-    // decides first; LOGIN_REQUIRED with none of these phrases is the bot check.
+    // decides first.
     if (mentionsAny(text, {"confirm your age", "age-restricted", "age restricted", "inappropriate"})) {
         return {Error::AgeRestricted, message};
     }
@@ -222,7 +222,9 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
         return {Error::Unavailable, message};
     }
     if (status == "LOGIN_REQUIRED") {
-        return {Error::LoginRequired, message};
+        // "Sign in to confirm you're not a bot" is about who asks; anything
+        // else left under LOGIN_REQUIRED is a real sign-in wall.
+        return {mentionsAny(text, {"not a bot"}) ? Error::BotCheck : Error::LoginRequired, message};
     }
     return {Error::Unavailable, message};
 }

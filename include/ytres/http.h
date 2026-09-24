@@ -15,8 +15,9 @@
 // =======================================================
 // Rules:
 // - send() never throws. A failure comes back as a Status - Cancelled,
-//   Timeout, Network, or Http for a status of 400 and up, with the response
-//   still in value.
+//   Timeout, Network, Http for a status of 400 and up with the response
+//   still in value, or Internal when the client itself fails (out of
+//   memory, say), which is no fault of the network's.
 // - send() gives up once timeout has passed, connecting included, and polls
 //   cancelled while it waits.
 // - One client serves every thread its Resolver is called from, so send()

@@ -126,6 +126,8 @@ enum class Error {
     NoFormats,       // playable, but nothing usable came back
     PlayerScript,    // base.js fetch or extraction failed (JS tier only)
     BadInput,
+    BotCheck,        // "confirm you're not a bot": about the caller, not the video
+    Internal,        // a bug or resource failure inside the library
 };
 
 struct Status {

@@ -24,10 +24,10 @@
 //   library does not run, so parsePlayerResponse() skips it. It also skips
 //   what yt-dlp never picks, url or not: live segments, OTF streams, DRM.
 // - In parsePlayerResponse() the reason text decides before the status:
-//   LOGIN_REQUIRED covers age gates and private videos as well as the bot
-//   check. The phrases are English (hl=en); in another language an age gate
-//   or a private video reads as LoginRequired and a region block as
-//   Unavailable.
+//   LOGIN_REQUIRED covers age gates, private videos and the bot check as
+//   well as a real sign-in wall. The phrases are English (hl=en); in another
+//   language an age gate, a private video or the bot check reads as
+//   LoginRequired and a region block as Unavailable.
 // =======================================================
 namespace ytres::innertube {
 

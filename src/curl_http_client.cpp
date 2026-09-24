@@ -58,6 +58,7 @@ struct Body
 {
     std::string bytes;
     bool tooLarge{false};
+    bool outOfMemory{false};
 };
 
 // libcurl calls back through C frames, which no exception may unwind: a
@@ -73,6 +74,7 @@ size_t onBody(char *data, size_t size, size_t count, void *userdata)
     try {
         body->bytes.append(data, length);
     } catch (...) {
+        body->outOfMemory = true;
         return 0;
     }
     return length;
@@ -114,7 +116,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
 {
     const CURLcode initCode = globalInit();
     if (initCode != CURLE_OK) {
-        return {{Error::Network, std::string("libcurl failed to initialise: ") + curl_easy_strerror(initCode)}, {}};
+        return {{Error::Internal, std::string("libcurl failed to initialise: ") + curl_easy_strerror(initCode)}, {}};
     }
     if (request.method != "GET" && request.method != "POST") {
         return {{Error::BadInput, "Unsupported HTTP method: " + request.method}, {}};
@@ -129,7 +131,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     std::unique_ptr<CURLM, MultiDeleter> multi(curl_multi_init());
     std::unique_ptr<CURL, EasyDeleter> easy(curl_easy_init());
     if (!multi || !easy) {
-        return {{Error::Network, "libcurl could not create a handle"}, {}};
+        return {{Error::Internal, "libcurl could not create a handle"}, {}};
     }
     std::unique_ptr<curl_slist, SlistDeleter> headers;
     for (const auto &[name, value] : request.headers) {
@@ -138,7 +140,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
         curl_slist *appended = curl_slist_append(head, line.c_str());
         headers.reset(appended ? appended : head);
         if (!appended) {
-            return {{Error::Network, "libcurl could not build the request headers"}, {}};
+            return {{Error::Internal, "libcurl could not build the request headers"}, {}};
         }
     }
 
@@ -168,7 +170,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     }
 
     if (curl_multi_add_handle(multi.get(), handle) != CURLM_OK) {
-        return {{Error::Network, "libcurl could not start the transfer"}, {}};
+        return {{Error::Internal, "libcurl could not start the transfer"}, {}};
     }
     const Attachment attachment(multi.get(), handle);
 
@@ -191,12 +193,13 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
             break;
         }
     }
+    // A multi handle that fails is libcurl's trouble, not the network's.
     if (multiCode != CURLM_OK) {
-        return {{Error::Network, curl_multi_strerror(multiCode)}, {}};
+        return {{Error::Internal, curl_multi_strerror(multiCode)}, {}};
     }
     const std::optional<CURLcode> finished = transferResult(multi.get());
     if (!finished) {
-        return {{Error::Network, "libcurl lost track of the transfer"}, {}};
+        return {{Error::Internal, "libcurl lost track of the transfer"}, {}};
     }
 
     const CURLcode code = *finished;
@@ -208,6 +211,9 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     }
     if (body.tooLarge) {
         return {{Error::Network, "Response too large"}, {}};
+    }
+    if (body.outOfMemory || code == CURLE_OUT_OF_MEMORY) {
+        return {{Error::Internal, "Out of memory"}, {}};
     }
     if (code != CURLE_OK) {
         return {{Error::Network, curl_easy_strerror(code)}, {}};
