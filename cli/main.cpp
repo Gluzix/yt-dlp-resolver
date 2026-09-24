@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,6 +23,8 @@
 //   goes to stderr as "<Error>: <message>" with exit code 1.
 // - Titles go out as the library's UTF-8, byte for byte: no code page
 //   conversion here either.
+// - A --dump is a fixture to commit, so scrubbed() takes out what identifies
+//   whoever recorded it before writeFile() sees it.
 // =======================================================
 
 namespace {
@@ -110,6 +113,16 @@ bool parseArguments(int argc, char **argv, Arguments &args)
     return !args.target.empty();
 }
 
+// Every stream url names the requesting address: ?ip=/&ip= in queries,
+// /ip/<addr>/ in hlsManifestUrl's path, IPv6 percent-encoded. Visitor data
+// identifies the visitor to YouTube, so it goes too.
+std::string scrubbed(std::string text)
+{
+    text = std::regex_replace(text, std::regex(R"(([?&])ip=[0-9A-Fa-f.:%]+)"), "$1ip=203.0.113.7");
+    text = std::regex_replace(text, std::regex(R"(/ip/[0-9A-Fa-f.:%]+/)"), "/ip/203.0.113.7/");
+    return std::regex_replace(text, std::regex(R"("visitorData":"[^"]*")"), R"("visitorData":"FIXTURE")");
+}
+
 bool writeFile(const std::string &path, const std::string &contents)
 {
     std::ofstream file(path, std::ios::binary);
@@ -155,7 +168,7 @@ int main(int argc, char **argv)
 
     // Written before the verdict: an unavailable video's answer is a fixture too.
     if (!args.dumpPath.empty() && !recorder->playerResponse.empty()
-        && !writeFile(args.dumpPath, recorder->playerResponse)) {
+        && !writeFile(args.dumpPath, scrubbed(recorder->playerResponse))) {
         std::cerr << "Cannot write " << args.dumpPath << '\n';
         return 1;
     }

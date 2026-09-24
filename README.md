@@ -45,10 +45,9 @@ per line: the three lines the bot reads from yt-dlp today. On failure it
 prints the error code and YouTube's reason to stderr and exits with 1.
 
 - `--formats` lists every usable format instead.
-- `--dump <file>` also writes YouTube's raw player response to `<file>`; that
-  is how fixtures are recorded. Every stream URL in it carries your public IP
-  address (`ip=`): replace it before committing a fixture, as was done for the
-  ones in `tests/fixtures/`.
+- `--dump <file>` also writes YouTube's player response to `<file>`; that is
+  how fixtures are recorded. The dump is scrubbed of the requesting IP and
+  visitor data automatically.
 
 Stream URLs expire after a few hours and work only from the IP address that
 asked for them.

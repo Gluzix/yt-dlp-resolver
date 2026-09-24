@@ -192,4 +192,4 @@ yt-dlp also retries on 5xx. The POC does not need to.
   4.8 s.
 
 The responses in `tests/fixtures/` come from this run, with the requesting
-IP replaced by 203.0.113.7.
+IP replaced by 203.0.113.7 and the visitor data by "FIXTURE".
