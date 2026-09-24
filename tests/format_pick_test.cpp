@@ -54,3 +54,43 @@ TEST_CASE("only audio-only formats count")
     CHECK(bestItag({format(137, 3038377, R"(video/mp4; codecs="avc1.640028")")}) == 0);
     CHECK(bestItag({}) == 0);
 }
+
+TEST_CASE("the original language wins over a dub listed first")
+{
+    ytres::Format german = format(251, 128930, OPUS);
+    german.isDefaultAudio = false;
+    german.url += "-de";
+    const ytres::Format original = format(251, 128930, OPUS);
+
+    ytres::VideoInfo info;
+    info.formats = {german, original};
+    const auto best = info.bestAudio();
+    REQUIRE(best);
+    CHECK(best->url == original.url);
+}
+
+TEST_CASE("the plain stream wins over a DRC copy listed first")
+{
+    ytres::Format drc = format(251, 128930, OPUS);
+    drc.isDrc = true;
+    drc.url += "-drc";
+    const ytres::Format plain = format(251, 128930, OPUS);
+
+    ytres::VideoInfo info;
+    info.formats = {drc, plain};
+    const auto best = info.bestAudio();
+    REQUIRE(best);
+    CHECK(best->url == plain.url);
+}
+
+TEST_CASE("with no original plain audio, every audio format is in the running")
+{
+    ytres::Format dub = format(140, 129502, AAC);
+    dub.isDefaultAudio = false;
+    ytres::Format drc = format(251, 128930, OPUS);
+    drc.isDrc = true;
+    CHECK(bestItag({dub, drc}) == 251);
+
+    // An original 140 still beats a dubbed or compressed 251.
+    CHECK(bestItag({drc, format(140, 129502, AAC)}) == 140);
+}

@@ -226,3 +226,26 @@ TEST_CASE("an answer that is not a player response is a Parse failure")
         CHECK(parsePlayerResponse(body, "dQw4w9WgXcQ", 0).status.code == Error::Parse);
     }
 }
+
+TEST_CASE("formats say whether they are DRC copies or dubbed tracks")
+{
+    const std::string formats =
+        R"({"adaptiveFormats":[)"
+        R"({"itag":251,"url":"https://x/?expire=5&lang=de","mimeType":"audio/webm","audioTrack":{"id":"de.3","audioIsDefault":false}},)"
+        R"({"itag":251,"url":"https://x/?expire=5&drc=1","mimeType":"audio/webm","isDrc":true,"audioTrack":{"id":"en.4","audioIsDefault":true}},)"
+        R"({"itag":251,"url":"https://x/?expire=5&lang=en","mimeType":"audio/webm","audioTrack":{"id":"en.4","audioIsDefault":true}},)"
+        R"({"itag":140,"url":"https://x/?expire=5","mimeType":"audio/mp4"}]})";
+    const auto result = parsePlayerResponse(playerResponse(OK, formats), "dQw4w9WgXcQ", 0);
+    REQUIRE(result);
+    const auto &parsed = result.value.formats;
+    REQUIRE(parsed.size() == 4);
+    CHECK_FALSE(parsed[0].isDefaultAudio);
+    CHECK(parsed[1].isDrc);
+    CHECK(parsed[2].isDefaultAudio);
+    CHECK_FALSE(parsed[2].isDrc);
+    CHECK(parsed[3].isDefaultAudio); // no audioTrack: the only track there is
+
+    const auto best = result.value.bestAudio();
+    REQUIRE(best);
+    CHECK(best->url == "https://x/?expire=5&lang=en");
+}

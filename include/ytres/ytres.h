@@ -66,6 +66,8 @@ struct Format
     int audioSampleRate{0};
     int audioChannels{0};
     int width{0}, height{0}, fps{0};  // video only
+    bool isDrc{false};                // YouTube's dynamic-range-compressed copy of another format
+    bool isDefaultAudio{true};        // false for a dubbed or described track
 };
 
 struct VideoInfo
@@ -79,10 +81,11 @@ struct VideoInfo
     std::vector<Format> formats;
     std::int64_t expiresAtUnix{0};    // every url above dies at this time
 
-    // The stream to play when only the sound matters. Among audio-only
-    // formats: itag 251 (Opus, ~160k), else 140 (AAC, 128k), else the highest
-    // bitrate - what yt-dlp's -f bestaudio picks on ordinary videos. Empty
-    // when there is no audio-only format.
+    // The stream to play when only the sound matters: itag 251 (Opus), else
+    // 140 (AAC, 128k), else the highest bitrate - what yt-dlp's -f bestaudio
+    // picks on ordinary videos. It chooses among the audio-only formats in
+    // the original language without DRC, and among all audio-only formats
+    // only when there are none such. Empty when no format is audio-only.
     std::optional<Format> bestAudio() const;
 };
 

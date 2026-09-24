@@ -126,6 +126,12 @@ Format readFormat(const json &entry, const std::string &url)
     format.width = static_cast<int>(readInt(entry, "width"));
     format.height = static_cast<int>(readInt(entry, "height"));
     format.fps = static_cast<int>(readInt(entry, "fps"));
+    format.isDrc = readBool(entry, "isDrc");
+    // A dubbed video lists one track per language; audioIsDefault marks the
+    // original. A video with one track has no audioTrack at all.
+    if (const json *audioTrack = child(entry, "audioTrack")) {
+        format.isDefaultAudio = readBool(*audioTrack, "audioIsDefault");
+    }
     return format;
 }
 
