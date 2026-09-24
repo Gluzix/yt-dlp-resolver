@@ -46,3 +46,9 @@ target_link_libraries(ytres_cli PRIVATE ytres)
 # For CurlHttpClient, which --dump wraps.
 target_include_directories(ytres_cli PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 ytres_compile_options(ytres_cli)
+
+option(YTRES_TESTS "Build the tests" ON)
+if(YTRES_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
