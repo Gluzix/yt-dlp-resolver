@@ -1,10 +1,6 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
-// --dump wraps the built-in client, which is not public: the Resolver hands
-// out parsed results only, and a fixture needs the raw player response.
-#include "curl_http_client.h"
-
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -61,8 +57,8 @@ const char *trackName(ytres::Track kind)
     return "?";
 }
 
-// Hands every request to the real client and keeps the last player
-// response, for --dump.
+// Wraps the built-in client and keeps the last player response, for
+// --dump: the Resolver hands out parsed results only.
 class RecordingHttpClient : public ytres::HttpClient
 {
 public:
@@ -155,7 +151,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    auto recorder = std::make_shared<RecordingHttpClient>(std::make_shared<ytres::CurlHttpClient>());
+    auto recorder = std::make_shared<RecordingHttpClient>(ytres::makeCurlHttpClient());
     ytres::Resolver::Options options;
     options.http = recorder;
     options.log = [](ytres::LogLevel level, std::string_view text) {

@@ -144,4 +144,9 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     return result;
 }
 
+std::shared_ptr<HttpClient> makeCurlHttpClient()
+{
+    return std::make_shared<CurlHttpClient>();
+}
+
 }

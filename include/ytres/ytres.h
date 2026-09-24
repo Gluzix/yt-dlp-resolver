@@ -110,8 +110,11 @@ public:
         // Tried in order once there is a client ladder; for now only the
         // first is used.
         std::vector<ClientId> clients{ClientId::VisionOS};
-        // language goes to YouTube as hl. country is not sent yet: the player
-        // request yt-dlp makes carries no gl.
+        // language goes to YouTube as hl, and YouTube's reasons come back in
+        // it. The checks that tell failures apart read English, so with
+        // another language an age gate or a private video reports as
+        // LoginRequired and a region block as Unavailable. country is not
+        // sent yet: the player request yt-dlp makes carries no gl.
         std::string language{"en"}, country{"US"};
         std::shared_ptr<HttpClient> http;                   // null -> built-in libcurl
         // Called on the resolving thread, so it must cope with several at once.
@@ -126,6 +129,10 @@ public:
     // Options' member initialisers.
     Resolver();
     explicit Resolver(Options options);
+    // Movable, so a factory can hand one out; not copyable. A moved-from
+    // Resolver answers every resolve() with BadInput.
+    Resolver(Resolver &&other) noexcept;
+    Resolver &operator=(Resolver &&other) noexcept;
     ~Resolver();
 
     // Title, page url and every usable stream of one video. Accepts any

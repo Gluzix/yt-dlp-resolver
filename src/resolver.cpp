@@ -1,7 +1,6 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
-#include "curl_http_client.h"
 #include "innertube.h"
 #include "url_parse.h"
 #include "watch_page.h"
@@ -73,14 +72,19 @@ Resolver::Resolver()
 Resolver::Resolver(Options options)
     : impl(std::make_unique<Impl>())
 {
-    impl->http = options.http ? options.http : std::make_shared<CurlHttpClient>();
+    impl->http = options.http ? options.http : makeCurlHttpClient();
     impl->options = std::move(options);
 }
 
+Resolver::Resolver(Resolver &&other) noexcept = default;
+Resolver &Resolver::operator=(Resolver &&other) noexcept = default;
 Resolver::~Resolver() = default;
 
 Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &request)
 {
+    if (!impl) {
+        return {{Error::BadInput, "This Resolver has been moved from"}, {}};
+    }
     // No exception crosses the public API. The enum has no code for a bug or
     // an exhausted heap; Parse is the nearest.
     try {

@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -232,4 +233,30 @@ TEST_CASE("a failed player request passes its status on")
     TestResolver test;
     test.http->playerFailure = {Error::Timeout, "Timeout was reached"};
     CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::Timeout);
+}
+
+static_assert(std::is_nothrow_move_constructible_v<ytres::Resolver>);
+static_assert(std::is_nothrow_move_assignable_v<ytres::Resolver>);
+static_assert(!std::is_copy_constructible_v<ytres::Resolver>);
+
+TEST_CASE("a Resolver can come out of a factory and move, and a moved-from one refuses")
+{
+    const auto http = std::make_shared<FakeHttpClient>(readFixture("player_dQw4w9WgXcQ.json"), WATCH_PAGE);
+    const auto make = [&http] {
+        ytres::Resolver::Options options;
+        options.http = http;
+        ytres::Resolver made(options);
+        return made; // a named local: this needs the move constructor
+    };
+    ytres::Resolver first = make();
+    CHECK(first.resolve("dQw4w9WgXcQ"));
+
+    ytres::Resolver second; // its own libcurl client, which never gets to send
+    second = std::move(first);
+    CHECK(second.resolve("dQw4w9WgXcQ"));
+    CHECK(http->requests.size() == 4);
+
+    const auto moved = first.resolve("dQw4w9WgXcQ"); // NOLINT(bugprone-use-after-move): that is the point
+    CHECK(moved.status.code == Error::BadInput);
+    CHECK(http->requests.size() == 4);
 }

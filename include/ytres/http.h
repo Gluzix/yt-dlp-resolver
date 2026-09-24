@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,5 +44,10 @@ public:
     virtual ~HttpClient() = default;
     virtual Result<HttpResponse> send(const HttpRequest &request) = 0;
 };
+
+// The built-in client on libcurl, the one a Resolver makes when
+// Options::http is null. For a caller that wants to wrap it - to record,
+// throttle or log - rather than replace it.
+std::shared_ptr<HttpClient> makeCurlHttpClient();
 
 }
