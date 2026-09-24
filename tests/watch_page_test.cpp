@@ -62,6 +62,17 @@ TEST_CASE("the watch page request carries the client's user agent and the consen
     CHECK(request.body.empty());
 }
 
+TEST_CASE("a client with no user agent of its own fetches the page as desktop Chrome")
+{
+    const ytres::innertube::ClientDef *web = ytres::innertube::findClient(ytres::ClientId::Web);
+    REQUIRE(web != nullptr);
+    REQUIRE(web->userAgent == nullptr);
+    const ytres::HttpRequest request = ytres::watchpage::request(*web, "dQw4w9WgXcQ");
+    REQUIRE(request.headers.size() == 2);
+    CHECK(request.headers[0].second.find("Chrome/") != std::string::npos);
+    CHECK(request.headers[0].second == ytres::innertube::userAgentHeader(*web));
+}
+
 TEST_CASE("visitor data unfit to travel as a header is refused, saying why")
 {
     const auto page = [](const nlohmann::json &value) {

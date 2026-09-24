@@ -71,6 +71,14 @@ TEST_CASE("the recorded bot check is BotCheck with YouTube's reason")
     CHECK(result.status.message.find("not a bot") != std::string::npos);
 }
 
+TEST_CASE("the recorded web answer is NoFormats: YouTube refused the client, not the video")
+{
+    // What the web client got for dQw4w9WgXcQ without a PO Token, visitor data and all.
+    const auto result = parsePlayerResponse(readFixture("player_web_dQw4w9WgXcQ.json"), "dQw4w9WgXcQ", 0);
+    CHECK(result.status.code == Error::NoFormats);
+    CHECK(result.status.message == "YouTube refused the client: Video unavailable. The page needs to be reloaded.");
+}
+
 TEST_CASE("playability failures map to specific errors")
 {
     struct Case
@@ -94,6 +102,11 @@ TEST_CASE("playability failures map to specific errors")
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},
         {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube"})", Error::AgeRestricted},
         {R"({"status":"CONTENT_CHECK_REQUIRED","reason":"Viewer discretion is advised"})", Error::Unavailable},
+        // a refused client, whatever the reason says: by its Reload button in any language, else by the phrase
+        {R"({"status":"UNPLAYABLE","reason":"Film jest niedostÄ™pny","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::NoFormats},
+        {R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::NoFormats},
     };
     for (const Case &c : cases) {
         const std::string playability = c.playability;

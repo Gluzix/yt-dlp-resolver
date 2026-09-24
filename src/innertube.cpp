@@ -17,7 +17,7 @@ using nlohmann::json;
 using nlohmann::ordered_json;
 
 // Copied from yt-dlp's INNERTUBE_CLIENTS; docs/innertube-notes.md has the
-// source row and the date it was read.
+// source rows and the date they were read.
 const ClientDef CLIENTS[] = {
     {
         ClientId::VisionOS,
@@ -32,7 +32,25 @@ const ClientDef CLIENTS[] = {
         "26.5.23O471",
         false,
     },
+    {
+        ClientId::Web,
+        "web",
+        1,
+        "WEB",
+        "2.20260708.00.00",
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        true,
+    },
 };
+
+// yt-dlp's random_user_agent() at the top of its range (Chrome 145 to 151),
+// fixed so that a request reads the same every time.
+const char *const BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 
 const char *const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const char *const ORIGIN = "https://www.youtube.com";
@@ -203,13 +221,36 @@ std::string subreasonOf(const json &playability)
     return text;
 }
 
-Status playabilityFailure(const std::string &status, const std::string &reason, const std::string &subreason)
+// Whether the error screen's button reloads the page: YouTube's answer to a
+// client it will not serve as asked, the web client without a PO Token for
+// one. The signal reads the same in every language.
+bool asksForReload(const json &playability)
+{
+    const json *at = &playability;
+    for (const char *key : {"errorScreen", "playerErrorMessageRenderer", "proceedButton", "buttonRenderer", "command",
+                            "signalAction"}) {
+        at = child(*at, key);
+        if (!at) {
+            return false;
+        }
+    }
+    return readString(*at, "signal") == "RELOAD_PAGE";
+}
+
+Status playabilityFailure(const std::string &status, const std::string &reason, const std::string &subreason,
+                          bool reloadAsked)
 {
     std::string message = reason.empty() ? "YouTube says " + status : reason;
     if (!subreason.empty()) {
         message += (message.back() == '.' ? " " : ". ") + subreason; // joined as yt-dlp joins them
     }
     const std::string text = reason + " " + subreason;
+    // "Video unavailable. The page needs to be reloaded." says nothing about
+    // the video: YouTube will not serve this client, and another may still
+    // get the formats.
+    if (reloadAsked || mentionsAny(text, {"page needs to be reloaded"})) {
+        return {Error::NoFormats, "YouTube refused the client: " + message};
+    }
     // Age gates and private videos arrive as LOGIN_REQUIRED too, so the reason
     // decides first.
     if (mentionsAny(text, {"confirm your age", "age-restricted", "age restricted", "inappropriate"})) {
@@ -275,7 +316,7 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
     }
     const std::string reason = readString(*playability, "reason");
     if (!isAccepted(status)) {
-        return {playabilityFailure(status, reason, subreasonOf(*playability)), {}};
+        return {playabilityFailure(status, reason, subreasonOf(*playability), asksForReload(*playability)), {}};
     }
 
     // yt-dlp checks this too: now and then YouTube answers about another video.
@@ -361,6 +402,11 @@ const ClientDef *findClient(ClientId id)
     return nullptr;
 }
 
+const char *userAgentHeader(const ClientDef &client)
+{
+    return client.userAgent ? client.userAgent : BROWSER_USER_AGENT;
+}
+
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData)
 {
@@ -406,7 +452,7 @@ HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, c
         {"X-YouTube-Client-Name", std::to_string(client.contextClientName)},
         {"X-YouTube-Client-Version", client.clientVersion},
         {"Origin", ORIGIN},
-        {"User-Agent", client.userAgent},
+        {"User-Agent", userAgentHeader(client)},
     };
     if (!visitorData.empty()) {
         request.headers.emplace_back("X-Goog-Visitor-Id", visitorData);

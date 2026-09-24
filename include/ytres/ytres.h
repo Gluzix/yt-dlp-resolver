@@ -108,17 +108,23 @@ struct Request
 
 enum class LogLevel { Debug, Info, Warning, Error };
 
-// The InnerTube clients the resolver can pose as. VisionOS needs neither
-// YouTube's player JavaScript nor a PO Token.
-enum class ClientId { VisionOS };
+// The InnerTube clients the resolver can pose as, rows of yt-dlp's table.
+// VisionOS needs neither YouTube's player JavaScript nor a PO Token; it is
+// the one that plays. Web needs both, which the library does not have, so
+// YouTube turns it away and it ends in NoFormats: it is there to exercise
+// the client ladder, and as the pattern for the next client that works.
+enum class ClientId { VisionOS, Web };
 
 class Resolver
 {
 public:
     struct Options
     {
-        // Tried in order once there is a client ladder; for now only the
-        // first is used.
+        // The client ladder, tried in order until one gives formats. A
+        // failure about the client - BotCheck, NoFormats, Http, Parse -
+        // passes the video on to the next; one about the video, the network,
+        // the call or the library ends the resolve there. Empty, or an id
+        // the library does not know, is BadInput.
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
@@ -152,7 +158,9 @@ public:
     // first fetches a watch page (about 1.3 MB) for the visitor data without
     // which YouTube bot-checks most videos, and keeps it for up to 6 hours
     // for every later resolve on any thread. A bot check fetches the page
-    // once more and asks once more, within the same deadline.
+    // once more and asks once more, within the same deadline. When every
+    // client in the ladder fails, the result is the last one's code, and its
+    // message names each client with what it answered.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
 
 private:

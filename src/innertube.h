@@ -28,6 +28,10 @@
 //   well as a real sign-in wall. The phrases are English (hl=en); in another
 //   language an age gate, a private video or the bot check reads as
 //   LoginRequired and a region block as Unavailable.
+// - A client YouTube will not serve as asked - web without a PO Token - gets
+//   "Video unavailable. The page needs to be reloaded." with a RELOAD_PAGE
+//   button. That is NoFormats, a failure of the client, not Unavailable: the
+//   ladder must move on rather than give the video up.
 // =======================================================
 namespace ytres::innertube {
 
@@ -42,14 +46,22 @@ struct ClientDef
     const char *clientVersion;     // also sent as X-YouTube-Client-Version
     const char *deviceMake;
     const char *deviceModel;
-    const char *userAgent;         // also sent as User-Agent
+    const char *userAgent;         // also the User-Agent header; see userAgentHeader()
     const char *osName;
     const char *osVersion;
-    bool requireJsPlayer;          // must stay false: there is no JS tier
+    // True when YouTube ciphers the client's formats for its player
+    // JavaScript to undo. The library runs none, so such a client can only
+    // end in NoFormats.
+    bool requireJsPlayer;
 };
 
 // The table's row for id; null when it has none.
 const ClientDef *findClient(ClientId id);
+
+// The User-Agent header for the client's requests, as yt-dlp sends it: the
+// userAgent of its context, or for a client without one (web), the desktop
+// Chrome that yt-dlp's HTTP layer poses as.
+const char *userAgentHeader(const ClientDef &client);
 
 // POST /youtubei/v1/player for one video, as yt-dlp sends it for a client
 // that needs no JS player. language goes out as hl; visitorData, unless

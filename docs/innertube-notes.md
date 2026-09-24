@@ -41,6 +41,40 @@ POC. It will not last forever (yt-dlp's comments record `android_vr` being
 cut off on 2026-08-17), so the client table in code must be data that is
 trivial to extend.
 
+## The second client: `web`
+
+Added for M2's client ladder. The row, verbatim:
+
+```python
+'web': {
+    'INNERTUBE_CONTEXT': {
+        'client': {
+            'clientName': 'WEB',
+            'clientVersion': '2.20260708.00.00',
+        },
+    },
+    'INNERTUBE_CONTEXT_CLIENT_NAME': 1,
+    'SUPPORTS_COOKIES': True,
+    **WEB_PO_TOKEN_POLICIES,
+},
+```
+
+It needs the JS player and a PO Token, so the library cannot play through
+it; it is in the table to exercise the ladder and as the pattern for the
+next client that works. Its context has no `userAgent`, so
+`_generate_api_headers` drops the `User-Agent` header and yt-dlp's HTTP layer
+sends its standard one, from `random_user_agent()` in
+`yt_dlp/utils/networking.py`:
+
+```python
+USER_AGENT_TMPL = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36'
+CHROME_MAJOR_VERSION_RANGE = (145, 151)
+```
+
+The library sends no `userAgent` in the body either, and fixes the header at
+Chrome 151, the top of that range, so that a request reads the same every
+time.
+
 ## The player request
 
 ```
@@ -146,6 +180,11 @@ next thing to try — in that order — is:
    client user agent, find `ytcfg.set({...})` in the HTML, pull
    `INNERTUBE_CONTEXT.client.visitorData`, send it as `X-Goog-Visitor-Id`
    and also as `context.client.visitorData` in the body.
+   yt-dlp's `_initialize_consent` also puts `SOCS=CAI`, a consent already
+   given, in its cookie jar for `.youtube.com`, so that no EU consent
+   interstitial stands in for the page. Since M2 the library sends it as a
+   `Cookie` header on the watch page; yt-dlp's jar sends it on the player
+   request too, and the library does not.
 2. Report back. Do not go beyond this in the POC — adding more clients is a
    M2 decision, and PO Tokens are out of scope for good.
 
@@ -193,3 +232,29 @@ yt-dlp also retries on 5xx. The POC does not need to.
 
 The responses in `tests/fixtures/` come from this run, with the requesting
 IP replaced by 203.0.113.7 and the visitor data by "FIXTURE".
+
+M2, the same day and line:
+
+- **The visitor data outlives its video.** Cached from `dQw4w9WgXcQ`'s page,
+  it served `jNQXAC9IVRw`, `9bZkp7q19f0`, `kJQP7kiw5Fk` and `fJ9rUzIMcZQ`
+  with no bot check. A warm resolve, the player request alone, took 118 to
+  187 ms; the POC's two-request resolves took 0.84 to 1.31 s the same
+  afternoon.
+- **The `web` client is refused, not ciphered.** Asked for `dQw4w9WgXcQ`
+  with visitor data and without a PO Token, it answered `UNPLAYABLE`, reason
+  "Video unavailable", subreason "The page needs to be reloaded.", a Reload
+  button whose command signals `RELOAD_PAGE`, `videoDetails`, and no
+  `streamingData` at all. It is YouTube turning the client away (yt-dlp's
+  own `web` clients met the same answer in March 2026), so the library
+  reads it as `NoFormats` and the ladder moves on, where `Unavailable`
+  would have given the video up. `tests/fixtures/player_web_dQw4w9WgXcQ.json`
+  is that answer.
+- **The `web` answer names the visitor twice.** Besides
+  `responseContext.visitorData`, which it lacked, it carries the visitor id
+  as the `GFEEDBACK` tracking parameter `visitor_data`: base64 protobuf that
+  also encodes the country (`PL`). The dump scrubber replaces both.
+- **Cancellation now lands in 20 to 27 ms.** A cancel 100 ms into a connect
+  to the unroutable 10.255.255.1 returned after 1000 to 1015 ms through
+  `curl_easy_perform`, which polls its progress callback about once a
+  second while connecting, and after 120 to 127 ms through the multi
+  interface's 20 ms polls.

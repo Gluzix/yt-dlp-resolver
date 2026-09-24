@@ -27,9 +27,10 @@ class TestResolver
 {
 public:
     explicit TestResolver(const std::string &watchPage = WATCH_PAGE,
-                          std::chrono::milliseconds requestTimeout = std::chrono::seconds(10))
+                          std::chrono::milliseconds requestTimeout = std::chrono::seconds(10),
+                          std::vector<ytres::ClientId> clients = {ytres::ClientId::VisionOS})
         : http(std::make_shared<FakeHttpClient>(readFixture("player_dQw4w9WgXcQ.json"), watchPage))
-        , resolver(options(requestTimeout))
+        , resolver(options(requestTimeout, std::move(clients)))
     {
     }
 
@@ -54,12 +55,13 @@ public:
     ytres::Resolver resolver;
 
 private:
-    ytres::Resolver::Options options(std::chrono::milliseconds requestTimeout)
+    ytres::Resolver::Options options(std::chrono::milliseconds requestTimeout, std::vector<ytres::ClientId> clients)
     {
         ytres::Resolver::Options made;
         made.http = http;
         made.log = [this](ytres::LogLevel level, std::string_view text) { logs.emplace_back(level, std::string(text)); };
         made.requestTimeout = requestTimeout;
+        made.clients = std::move(clients);
         return made;
     }
 };

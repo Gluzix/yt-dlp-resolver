@@ -10,6 +10,7 @@
 #include <chrono>
 #include <exception>
 #include <utility>
+#include <vector>
 
 namespace ytres {
 
@@ -39,6 +40,34 @@ std::string bodyExcerpt(const std::string &body, size_t maxBytes)
         }
     }
     return excerpt;
+}
+
+// Whether a client's failure passes the video on to the next client. Only a
+// failure about the client does - how YouTube treats it, or what it can
+// read. The video, the network, the call and the library would fail the same
+// way whoever asked.
+bool triesNextClient(Error error)
+{
+    switch (error) {
+    case Error::BotCheck:     // its one retry with fresh visitor data is spent
+    case Error::NoFormats:    // ciphered, SABR only, or none at all
+    case Error::Http:
+    case Error::Parse:
+    case Error::PlayerScript: // a JS tier's failure is its client's
+        return true;
+    case Error::Ok:
+    case Error::Cancelled:
+    case Error::Timeout:
+    case Error::Network:
+    case Error::Internal:
+    case Error::Unavailable:
+    case Error::AgeRestricted:
+    case Error::GeoBlocked:
+    case Error::LoginRequired:
+    case Error::BadInput:
+        return false;
+    }
+    return false;
 }
 
 }
@@ -122,35 +151,62 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
     if (!videoId) {
         return {videoId.status, {}};
     }
-    // One client until M2 brings the ladder.
-    const innertube::ClientDef *client = options.clients.empty() ? nullptr : innertube::findClient(options.clients.front());
-    if (!client) {
+    // The whole ladder up front, so that a bad list fails before anything is sent.
+    std::vector<const innertube::ClientDef *> ladder;
+    for (ClientId id : options.clients) {
+        const innertube::ClientDef *client = innertube::findClient(id);
+        if (!client) {
+            return {{Error::BadInput, "Unknown InnerTube client " + std::to_string(static_cast<int>(id))}, {}};
+        }
+        ladder.push_back(client);
+    }
+    if (ladder.empty()) {
         return {{Error::BadInput, "No InnerTube client to ask"}, {}};
     }
     const Call call{videoId.value, request, deadline};
 
-    const Result<std::string> visitorData = visitorDataToSend(*client, call);
+    Result<std::string> visitorData = visitorDataToSend(*ladder.front(), call);
     if (!visitorData) {
         return {visitorData.status, {}};
     }
-    Result<VideoInfo> info = askPlayer(*client, visitorData.value, call);
-    if (info.status.code != Error::BotCheck) {
-        return info;
+    bool refreshed = false;
+    std::string answers; // "<client>: <message>" for each client that failed
+    Result<VideoInfo> info;
+    for (size_t i = 0; i < ladder.size(); ++i) {
+        const innertube::ClientDef &client = *ladder[i];
+        info = askPlayer(client, visitorData.value, call);
+        // The cached visitor data may have worn out, or YouTube may have
+        // taken against this one: fetch the page once more and ask once
+        // more, within the same deadline. Once per resolve: the fresh value
+        // serves the clients after this one too.
+        if (info.status.code == Error::BotCheck && !refreshed) {
+            refreshed = true;
+            log(LogLevel::Warning, "Bot check for " + call.videoId + " on the " + client.key
+                                       + " client; fetching fresh visitor data to ask once more");
+            Result<std::string> fresh = fetchVisitorData(client, call);
+            if (!fresh) {
+                return {fresh.status, {}};
+            }
+            if (!fresh.value.empty()) {
+                visitorData.value = std::move(fresh.value);
+                info = askPlayer(client, visitorData.value, call);
+            }
+        }
+        if (info) {
+            return info;
+        }
+        if (!triesNextClient(info.status.code)) {
+            log(LogLevel::Debug, std::string("The ") + client.key + " client's answer ends the resolve: " + info.status.message);
+            return info;
+        }
+        answers += (answers.empty() ? "" : "; ") + std::string(client.key) + ": " + info.status.message;
+        if (i + 1 < ladder.size()) {
+            log(LogLevel::Warning, std::string("The ") + client.key + " client failed for " + call.videoId + " ("
+                                       + info.status.message + "); asking the " + ladder[i + 1]->key + " client next");
+        }
     }
-
-    // The cached visitor data may have worn out, or YouTube may have taken
-    // against this one: fetch the page once more and ask once more, within
-    // the same deadline. A page that brings nothing new leaves the bot check
-    // as the answer.
-    log(LogLevel::Warning, "Bot check for " + call.videoId + "; fetching fresh visitor data to ask once more");
-    const Result<std::string> fresh = fetchVisitorData(*client, call);
-    if (!fresh) {
-        return {fresh.status, {}};
-    }
-    if (fresh.value.empty()) {
-        return info;
-    }
-    return askPlayer(*client, fresh.value, call);
+    info.status.message = std::move(answers);
+    return info;
 }
 
 // The visitor data for a player request: the cached value while it is fresh,

@@ -12,6 +12,7 @@ add_executable(ytres_tests
     watch_page_test.cpp
     resolver_test.cpp
     visitor_cache_test.cpp
+    client_ladder_test.cpp
 )
 target_link_libraries(ytres_tests PRIVATE ytres doctest::doctest nlohmann_json::nlohmann_json)
 # The internals are tested directly, not only through the public API.
