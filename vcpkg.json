@@ -1,0 +1,16 @@
+{
+  "name": "ytres",
+  "version": "0.1.0",
+  "builtin-baseline": "05442024c3fda64320bd25d2251cc9807b84fb6f",
+  "dependencies": [
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": [
+        "ssl"
+      ]
+    },
+    "nlohmann-json",
+    "doctest"
+  ]
+}
