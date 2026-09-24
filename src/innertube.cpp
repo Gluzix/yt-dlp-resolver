@@ -150,17 +150,48 @@ bool mentionsAny(const std::string &text, std::initializer_list<std::string_view
     return false;
 }
 
-Status playabilityFailure(const std::string &status, const std::string &reason)
+// The detail YouTube files under errorScreen, a region block's among them,
+// while reason says only "Video unavailable". simpleText, or runs to join.
+std::string subreasonOf(const json &playability)
 {
-    const std::string message = reason.empty() ? "YouTube says " + status : reason;
-    if (status == "LOGIN_REQUIRED") {
-        return {Error::LoginRequired, message};
+    const json *errorScreen = child(playability, "errorScreen");
+    const json *renderer = errorScreen ? child(*errorScreen, "playerErrorMessageRenderer") : nullptr;
+    const json *subreason = renderer ? child(*renderer, "subreason") : nullptr;
+    if (!subreason) {
+        return {};
     }
-    if (mentionsAny(reason, {"confirm your age", "age-restricted", "age restricted"})) {
+    std::string text = readString(*subreason, "simpleText");
+    const json *runs = childArray(*subreason, "runs");
+    if (text.empty() && runs) {
+        for (const json &run : *runs) {
+            if (run.is_object()) {
+                text += readString(run, "text");
+            }
+        }
+    }
+    return text;
+}
+
+Status playabilityFailure(const std::string &status, const std::string &reason, const std::string &subreason)
+{
+    std::string message = reason.empty() ? "YouTube says " + status : reason;
+    if (!subreason.empty()) {
+        message += (message.back() == '.' ? " " : ". ") + subreason; // joined as yt-dlp joins them
+    }
+    const std::string text = reason + " " + subreason;
+    // Age gates and private videos arrive as LOGIN_REQUIRED too, so the reason
+    // decides first; LOGIN_REQUIRED with none of these phrases is the bot check.
+    if (mentionsAny(text, {"confirm your age", "age-restricted", "age restricted", "inappropriate"})) {
         return {Error::AgeRestricted, message};
     }
-    if (mentionsAny(reason, {"your country", "your region"})) {
+    if (mentionsAny(text, {"your country", "your region"})) {
         return {Error::GeoBlocked, message};
+    }
+    if (mentionsAny(text, {"private"})) {
+        return {Error::Unavailable, message};
+    }
+    if (status == "LOGIN_REQUIRED") {
+        return {Error::LoginRequired, message};
     }
     return {Error::Unavailable, message};
 }
@@ -198,7 +229,7 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
     }
     const std::string reason = readString(*playability, "reason");
     if (!isAccepted(status)) {
-        return {playabilityFailure(status, reason), {}};
+        return {playabilityFailure(status, reason, subreasonOf(*playability)), {}};
     }
 
     // yt-dlp checks this too: now and then YouTube answers about another video.

@@ -79,7 +79,9 @@ TEST_CASE("playability failures map to specific errors")
         Error expected;
     };
     const Case cases[] = {
-        {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::Unavailable},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"})", Error::AgeRestricted},
         {R"({"status":"ERROR","reason":"This video has been removed by the uploader"})", Error::Unavailable},
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},
         {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube"})", Error::AgeRestricted},
@@ -92,6 +94,19 @@ TEST_CASE("playability failures map to specific errors")
         CHECK(result.status.code == c.expected);
         CHECK_FALSE(result.status.message.empty());
     }
+}
+
+TEST_CASE("a region block spelled out only in errorScreen's subreason is GeoBlocked")
+{
+    const std::string runs = R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+                             R"({"subreason":{"runs":[{"text":"The uploader has not made this video "},{"text":"available in your country"}]}}}})";
+    const auto fromRuns = parsePlayerResponse(playerResponse(runs, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(fromRuns.status.code == Error::GeoBlocked);
+    CHECK(fromRuns.status.message == "Video unavailable. The uploader has not made this video available in your country");
+
+    const std::string simpleText = R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+                                   R"({"subreason":{"simpleText":"This video is not available in your country"}}}})";
+    CHECK(parsePlayerResponse(playerResponse(simpleText, "{}"), "dQw4w9WgXcQ", 0).status.code == Error::GeoBlocked);
 }
 
 TEST_CASE("a failure without a reason still says something")

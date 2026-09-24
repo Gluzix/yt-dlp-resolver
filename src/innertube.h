@@ -22,8 +22,11 @@
 // - Only a format with a plain url is usable. One that carries a
 //   signatureCipher instead needs YouTube's player JavaScript, which the
 //   library does not run, so parsePlayerResponse() skips it.
-// - parsePlayerResponse() tells age and region blocks apart by English
-//   reason text (hl=en). In another language they come back as Unavailable.
+// - In parsePlayerResponse() the reason text decides before the status:
+//   LOGIN_REQUIRED covers age gates and private videos as well as the bot
+//   check. The phrases are English (hl=en); in another language an age gate
+//   or a private video reads as LoginRequired and a region block as
+//   Unavailable.
 // =======================================================
 namespace ytres::innertube {
 
