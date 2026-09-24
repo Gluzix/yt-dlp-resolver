@@ -23,7 +23,11 @@ public:
     {
         requests.push_back(request);
         const bool player = request.url.find("/youtubei/v1/player") != std::string::npos;
-        ytres::Result<ytres::HttpResponse> result{{}, {player ? playerStatus : 200, player ? playerBody : watchPage}};
+        const ytres::Status &failure = player ? playerFailure : pageFailure;
+        if (!failure) {
+            return {failure, {}};
+        }
+        ytres::Result<ytres::HttpResponse> result{{}, {player ? playerStatus : pageStatus, player ? playerBody : watchPage}};
         if (result.value.status >= 400) {
             // what the HttpClient contract asks of every client
             result.status = {ytres::Error::Http, "HTTP " + std::to_string(result.value.status)};
@@ -34,6 +38,9 @@ public:
     std::string playerBody;
     std::string watchPage;
     long playerStatus{200};
+    long pageStatus{200};
+    ytres::Status playerFailure; // not Ok: returned instead of a response
+    ytres::Status pageFailure;
     std::vector<ytres::HttpRequest> requests;
 };
 

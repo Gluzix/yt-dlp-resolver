@@ -1,4 +1,5 @@
 #include "fake_http_client.h"
+#include "innertube.h"
 
 #include <doctest/doctest.h>
 #include <nlohmann/json.hpp>
@@ -63,8 +64,13 @@ TEST_CASE("a resolve fetches the watch page, then asks the player with its visit
     CHECK(page.method == "GET");
     CHECK(page.url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
+    // What the glue sends, not only what the builder builds.
     const ytres::HttpRequest &player = test.http->requests[1];
+    const ytres::HttpRequest built = ytres::innertube::playerRequest(
+        *ytres::innertube::findClient(ytres::ClientId::VisionOS), "dQw4w9WgXcQ", "en", VISITOR_DATA);
     CHECK(player.method == "POST");
+    CHECK(player.url == "https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
+    CHECK(player.headers == built.headers);
     CHECK(headerValue(player, "X-Goog-Visitor-Id") == VISITOR_DATA);
     CHECK(nlohmann::json::parse(player.body)["context"]["client"]["visitorData"] == VISITOR_DATA);
     CHECK_FALSE(test.logged(ytres::LogLevel::Warning));
@@ -78,6 +84,22 @@ TEST_CASE("without visitor data the player is still asked, and a warning says so
     CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id").empty());
     CHECK(nlohmann::json::parse(test.http->requests[1].body)["context"]["client"].count("visitorData") == 0);
     CHECK(test.logged(ytres::LogLevel::Warning));
+}
+
+TEST_CASE("a watch page that fails costs a warning, and the player is asked without visitor data")
+{
+    TestResolver refused;
+    refused.http->pageStatus = 429;
+    TestResolver unreachable;
+    unreachable.http->pageFailure = {Error::Network, "Couldn't connect to server"};
+
+    for (TestResolver *test : {&refused, &unreachable}) {
+        CHECK(test->resolver.resolve("dQw4w9WgXcQ"));
+        REQUIRE(test->http->requests.size() == 2);
+        CHECK(headerValue(test->http->requests[1], "X-Goog-Visitor-Id").empty());
+        CHECK(nlohmann::json::parse(test->http->requests[1].body)["context"]["client"].count("visitorData") == 0);
+        CHECK(test->logged(ytres::LogLevel::Warning));
+    }
 }
 
 TEST_CASE("bad input never reaches the network")
@@ -157,4 +179,20 @@ TEST_CASE("an HTTP error from the player is Http")
     const auto result = test.resolver.resolve("dQw4w9WgXcQ");
     CHECK(result.status.code == Error::Http);
     CHECK(result.status.message.find("403") != std::string::npos);
+}
+
+TEST_CASE("a player status outside 2xx that the client let through is Http too")
+{
+    TestResolver test;
+    test.http->playerStatus = 302; // a redirect CurlHttpClient does not follow
+    const auto result = test.resolver.resolve("dQw4w9WgXcQ");
+    CHECK(result.status.code == Error::Http);
+    CHECK(result.status.message.find("302") != std::string::npos);
+}
+
+TEST_CASE("a failed player request passes its status on")
+{
+    TestResolver test;
+    test.http->playerFailure = {Error::Timeout, "Timeout was reached"};
+    CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::Timeout);
 }
