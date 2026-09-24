@@ -21,7 +21,8 @@
 //   recorded response replays the same way every time.
 // - Only a format with a plain url is usable. One that carries a
 //   signatureCipher instead needs YouTube's player JavaScript, which the
-//   library does not run, so parsePlayerResponse() skips it.
+//   library does not run, so parsePlayerResponse() skips it. It also skips
+//   what yt-dlp never picks, url or not: live segments, OTF streams, DRM.
 // - In parsePlayerResponse() the reason text decides before the status:
 //   LOGIN_REQUIRED covers age gates and private videos as well as the bot
 //   check. The phrases are English (hl=en); in another language an age gate

@@ -196,10 +196,18 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
     return {Error::Unavailable, message};
 }
 
+// The formats read past, by why.
+struct Skipped
+{
+    int ciphered{0};   // signatureCipher: needs the player JavaScript
+    int unplayable{0}; // live segments, OTF, DRM
+    int withoutUrl{0}; // neither url nor cipher
+};
+
 // An accepted status with nothing usable behind it: pass on YouTube's
 // reason where it gave one, else say what was missing.
 Status noFormatsFailure(const std::string &status, const std::string &reason, const json *streaming,
-                        int ciphered, int withoutUrl)
+                        const Skipped &skipped)
 {
     if (status == "AGE_CHECK_REQUIRED" || status == "AGE_VERIFICATION_REQUIRED") {
         return {Error::AgeRestricted, reason.empty() ? "YouTube wants an age check" : reason};
@@ -207,14 +215,19 @@ Status noFormatsFailure(const std::string &status, const std::string &reason, co
     if (status == "LIVE_STREAM_OFFLINE") {
         return {Error::Unavailable, reason.empty() ? "The live stream is offline" : reason};
     }
-    if (ciphered > 0) {
-        return {Error::NoFormats, "Every format needs the player JavaScript (" + std::to_string(ciphered) + " ciphered)"};
+    if (skipped.ciphered > 0) {
+        return {Error::NoFormats, "Every playable format needs the player JavaScript ("
+                                      + std::to_string(skipped.ciphered) + " ciphered)"};
+    }
+    if (skipped.unplayable > 0) {
+        return {Error::NoFormats, "Only live, OTF or DRM formats (" + std::to_string(skipped.unplayable)
+                                      + "); a live stream needs the HLS manifest"};
     }
     if (streaming && streaming->contains("serverAbrStreamingUrl")) {
         return {Error::NoFormats, "YouTube offers this client SABR streaming only"};
     }
-    if (withoutUrl > 0) {
-        return {Error::NoFormats, "No format has a url (" + std::to_string(withoutUrl) + " formats)"};
+    if (skipped.withoutUrl > 0) {
+        return {Error::NoFormats, "No format has a url (" + std::to_string(skipped.withoutUrl) + " formats)"};
     }
     return {Error::NoFormats, "YouTube listed no formats"};
 }
@@ -253,8 +266,7 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
     const json *streaming = child(root, "streamingData");
     const std::int64_t expiresIn = streaming ? readInt(*streaming, "expiresInSeconds") : 0;
     const std::int64_t fallbackExpiry = expiresIn > 0 ? nowUnix + expiresIn : 0;
-    int ciphered = 0;
-    int withoutUrl = 0;
+    Skipped skipped;
     for (const char *listName : {"formats", "adaptiveFormats"}) {
         const json *entries = streaming ? childArray(*streaming, listName) : nullptr;
         if (!entries) {
@@ -264,12 +276,19 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
             if (!entry.is_object()) {
                 continue;
             }
+            // yt-dlp never picks these: live segments need the manifest, OTF
+            // streams need numbered fragment requests, DRM needs a licence.
+            if (entry.contains("targetDurationSec") || entry.contains("drmFamilies")
+                || readString(entry, "type") == "FORMAT_STREAM_TYPE_OTF") {
+                ++skipped.unplayable;
+                continue;
+            }
             const std::string url = readString(entry, "url");
             if (url.empty()) {
                 if (entry.contains("signatureCipher")) {
-                    ++ciphered;
+                    ++skipped.ciphered;
                 } else {
-                    ++withoutUrl;
+                    ++skipped.withoutUrl;
                 }
                 continue;
             }
@@ -284,11 +303,14 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
     }
 
     if (info.formats.empty()) {
-        return {noFormatsFailure(status, reason, streaming, ciphered, withoutUrl), {}};
+        return {noFormatsFailure(status, reason, streaming, skipped), {}};
     }
-    if ((ciphered > 0 || withoutUrl > 0) && log) {
-        log(LogLevel::Warning, "Skipped formats without a plain url: " + std::to_string(ciphered) + " ciphered, "
-                                   + std::to_string(withoutUrl) + " with neither url nor cipher");
+    if (log && (skipped.ciphered > 0 || skipped.withoutUrl > 0)) {
+        log(LogLevel::Warning, "Skipped formats without a plain url: " + std::to_string(skipped.ciphered)
+                                   + " ciphered, " + std::to_string(skipped.withoutUrl) + " with neither url nor cipher");
+    }
+    if (log && skipped.unplayable > 0) {
+        log(LogLevel::Debug, "Skipped " + std::to_string(skipped.unplayable) + " live, OTF or DRM formats");
     }
     return {{}, std::move(info)};
 }

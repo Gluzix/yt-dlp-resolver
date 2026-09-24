@@ -144,6 +144,25 @@ TEST_CASE("ciphered formats are skipped, and ciphered alone is NoFormats")
     CHECK(some.value.formats[0].itag == 140);
 }
 
+TEST_CASE("live segments, OTF streams and DRM formats are skipped, and alone they are NoFormats")
+{
+    const std::string unplayable =
+        R"({"itag":140,"url":"https://x/?expire=5","mimeType":"audio/mp4","targetDurationSec":5},)"
+        R"({"itag":140,"url":"https://x/?expire=5","mimeType":"audio/mp4","type":"FORMAT_STREAM_TYPE_OTF"},)"
+        R"({"itag":141,"url":"https://x/?expire=5","mimeType":"audio/mp4","drmFamilies":["WIDEVINE"]})";
+    const std::string plain = R"({"itag":251,"url":"https://x/?expire=5","mimeType":"audio/webm"})";
+
+    const auto some = parsePlayerResponse(playerResponse(OK, R"({"adaptiveFormats":[)" + unplayable + "," + plain + "]}"),
+                                          "dQw4w9WgXcQ", 0);
+    REQUIRE(some);
+    REQUIRE(some.value.formats.size() == 1);
+    CHECK(some.value.formats[0].itag == 251);
+
+    const auto none = parsePlayerResponse(playerResponse(OK, R"({"adaptiveFormats":[)" + unplayable + "]}"), "dQw4w9WgXcQ", 0);
+    CHECK(none.status.code == Error::NoFormats);
+    CHECK(none.status.message.find("live") != std::string::npos);
+}
+
 TEST_CASE("SABR-only streaming data is NoFormats")
 {
     const std::string sabr = R"({"serverAbrStreamingUrl":"https://x/sabr","adaptiveFormats":[{"itag":251,"mimeType":"audio/webm"}]})";
