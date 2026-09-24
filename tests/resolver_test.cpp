@@ -123,6 +123,15 @@ TEST_CASE("a spent deadline is a Timeout and sends nothing")
     CHECK(test.http->requests.empty());
 }
 
+TEST_CASE("milliseconds::max() as a deadline means no deadline, not an instant timeout")
+{
+    TestResolver test;
+    ytres::Request request;
+    request.deadline = std::chrono::milliseconds::max();
+    CHECK(test.resolver.resolve("dQw4w9WgXcQ", request));
+    CHECK(test.http->requests.size() == 2);
+}
+
 TEST_CASE("each request gets the request timeout, never more than the deadline leaves")
 {
     TestResolver test(WATCH_PAGE, 5s);

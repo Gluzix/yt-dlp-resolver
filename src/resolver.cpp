@@ -75,7 +75,10 @@ Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &req
 
 Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request) const
 {
-    const Clock::time_point deadline = Clock::now() + request.deadline;
+    // steady_clock counts nanoseconds in 64 bits: milliseconds::max() as
+    // "no deadline" would wrap into the past.
+    const Clock::time_point deadline =
+        Clock::now() + std::min<std::chrono::milliseconds>(request.deadline, std::chrono::hours(24));
 
     const Result<std::string> videoId = parseVideoId(urlOrId);
     if (!videoId) {
