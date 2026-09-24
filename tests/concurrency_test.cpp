@@ -16,18 +16,19 @@
 
 namespace {
 
-std::string replaced(std::string text, const std::string &from, const std::string &to)
+// A player response about videoId with one Opus stream: small, so that 160
+// of them parse in no time even in a Debug build, where the recorded 88 KB
+// would take seconds.
+std::string playerResponseFor(const std::string &videoId)
 {
-    for (size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) {
-        text.replace(at, from.size(), to);
-    }
-    return text;
+    return R"({"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":")" + videoId
+         + R"(","title":"T","author":"A","lengthSeconds":"213"},"streamingData":{"adaptiveFormats":[{"itag":251,)"
+           R"("url":"https://example.invalid/videoplayback?expire=1790283253&itag=251","mimeType":"audio/webm; codecs=\"opus\""}]}})";
 }
 
 // Answers any number of threads at once, each player request about the video
-// it asked for: the recorded dQw4w9WgXcQ response with that id put in. A
-// Resolver that mixed up two threads' requests would read an answer about
-// another video, which it refuses. Counts what it is asked.
+// it asked for. A Resolver that mixed up two threads' requests would read an
+// answer about another video, which it refuses. Counts what it is asked.
 class ConcurrentHttpClient : public ytres::HttpClient
 {
 public:
@@ -44,15 +45,12 @@ public:
             ++withoutVisitorData;
         }
         const std::string videoId = nlohmann::json::parse(request.body)["videoId"].get<std::string>();
-        return {{}, {200, replaced(fixture, "dQw4w9WgXcQ", videoId)}};
+        return {{}, {200, playerResponseFor(videoId)}};
     }
 
     std::atomic<int> pages{0};
     std::atomic<int> players{0};
     std::atomic<int> withoutVisitorData{0};
-
-private:
-    const std::string fixture = readFixture("player_dQw4w9WgXcQ.json");
 };
 
 }
