@@ -4,6 +4,7 @@
 #include "curl_http_client.h"
 #include "innertube.h"
 #include "url_parse.h"
+#include "watch_page.h"
 
 #include <algorithm>
 #include <chrono>
@@ -33,6 +34,8 @@ struct Resolver::Impl
     std::shared_ptr<HttpClient> http;
 
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request) const;
+    Result<std::string> fetchVisitorData(const innertube::ClientDef &client, const std::string &videoId,
+                                         const Request &request, Clock::time_point deadline) const;
     Result<HttpResponse> send(HttpRequest httpRequest, const Request &request, Clock::time_point deadline) const;
 
     void log(LogLevel level, std::string_view text) const
@@ -84,9 +87,14 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         return {{Error::BadInput, "No InnerTube client to ask"}, {}};
     }
 
+    const Result<std::string> visitorData = fetchVisitorData(*client, videoId.value, request, deadline);
+    if (!visitorData) {
+        return {visitorData.status, {}};
+    }
+
     log(LogLevel::Debug, "Asking the " + std::string(client->key) + " client for " + videoId.value);
     const Result<HttpResponse> response =
-        send(innertube::playerRequest(*client, videoId.value, options.language), request, deadline);
+        send(innertube::playerRequest(*client, videoId.value, options.language, visitorData.value), request, deadline);
     if (!response) {
         return {response.status, {}};
     }
@@ -103,6 +111,28 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
                                  + std::to_string(info.value.expiresAtUnix));
     }
     return info;
+}
+
+// Without visitor data most player requests meet a bot check, but with none
+// the request is still worth making (some videos answer anyway), so a page
+// that fails or lacks it costs a warning, not the resolve. Only a cancel
+// ends the resolve here; a spent deadline ends it at the next send().
+Result<std::string> Resolver::Impl::fetchVisitorData(const innertube::ClientDef &client, const std::string &videoId,
+                                                     const Request &request, Clock::time_point deadline) const
+{
+    const Result<HttpResponse> page = send(watchpage::request(client, videoId), request, deadline);
+    if (page.status.code == Error::Cancelled) {
+        return {page.status, {}};
+    }
+    if (!page) {
+        log(LogLevel::Warning, "No watch page (" + page.status.message + "), so no visitor data");
+        return {};
+    }
+    std::string visitorData = watchpage::visitorData(page.value.body);
+    if (visitorData.empty()) {
+        log(LogLevel::Warning, "The watch page has no visitor data (HTTP " + std::to_string(page.value.status) + ")");
+    }
+    return {{}, std::move(visitorData)};
 }
 
 // Sends one request within what is left of the resolve's deadline.

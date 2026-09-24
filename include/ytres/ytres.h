@@ -126,7 +126,9 @@ public:
     ~Resolver();
 
     // Title, page url and every usable stream of one video. Accepts any
-    // youtube.com or youtu.be video link, or a bare 11-character id.
+    // youtube.com or youtu.be video link, or a bare 11-character id. Takes
+    // two requests: the watch page (about 1.3 MB), for the visitor data
+    // without which YouTube bot-checks most videos, then the player API.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
 
 private:

@@ -48,8 +48,10 @@ struct ClientDef
 const ClientDef *findClient(ClientId id);
 
 // POST /youtubei/v1/player for one video, as yt-dlp sends it for a client
-// that needs no JS player. language goes out as hl.
-HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language);
+// that needs no JS player. language goes out as hl; visitorData, unless
+// empty, as X-Goog-Visitor-Id and as context.client.visitorData.
+HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
+                          const std::string &visitorData);
 
 using LogFn = std::function<void(LogLevel, std::string_view)>;
 

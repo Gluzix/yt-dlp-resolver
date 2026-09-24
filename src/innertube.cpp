@@ -274,7 +274,8 @@ const ClientDef *findClient(ClientId id)
     return nullptr;
 }
 
-HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language)
+HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
+                          const std::string &visitorData)
 {
     // ordered_json keeps yt-dlp's key order, so the body reads like the one
     // in the notes.
@@ -297,6 +298,9 @@ HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, c
     clientContext["hl"] = language;
     clientContext["timeZone"] = "UTC";
     clientContext["utcOffsetMinutes"] = 0;
+    if (!visitorData.empty()) {
+        clientContext["visitorData"] = visitorData;
+    }
 
     ordered_json body = ordered_json::object();
     body["context"]["client"] = std::move(clientContext);
@@ -317,6 +321,9 @@ HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, c
         {"Origin", ORIGIN},
         {"User-Agent", client.userAgent},
     };
+    if (!visitorData.empty()) {
+        request.headers.emplace_back("X-Goog-Visitor-Id", visitorData);
+    }
     return request;
 }
 

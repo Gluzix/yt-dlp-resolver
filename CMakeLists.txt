@@ -29,6 +29,7 @@ add_library(ytres STATIC
     src/format_pick.cpp
     src/curl_http_client.h src/curl_http_client.cpp
     src/innertube.h src/innertube.cpp
+    src/watch_page.h src/watch_page.cpp
     src/resolver.cpp
 )
 target_include_directories(ytres
