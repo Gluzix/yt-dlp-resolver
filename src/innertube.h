@@ -64,8 +64,10 @@ const ClientDef *findClient(ClientId id);
 const char *userAgentHeader(const ClientDef &client);
 
 // POST /youtubei/v1/player for one video, as yt-dlp sends it for a client
-// that needs no JS player. language goes out as hl; visitorData, unless
-// empty, as X-Goog-Visitor-Id and as context.client.visitorData.
+// that needs no JS player: no signatureTimestamp, whichever the client, since
+// that comes from the player JavaScript. language goes out as hl;
+// visitorData, unless empty, as X-Goog-Visitor-Id and as
+// context.client.visitorData.
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData);
 

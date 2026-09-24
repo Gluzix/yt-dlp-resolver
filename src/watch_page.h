@@ -9,8 +9,8 @@
 // The video's watch page, fetched only for the visitor data in its ytcfg.
 // Without visitor data YouTube answers most anonymous player requests with
 // "Sign in to confirm you're not a bot" (docs/innertube-notes.md, Verified
-// live), so a Resolver fetches the page before its first player request and
-// whenever the bot check comes back.
+// live), so a Resolver fetches the page whenever it has no fresh visitor
+// data, and once more in a resolve that meets the bot check.
 namespace ytres::watchpage {
 
 // GET https://www.youtube.com/watch?v=<id> with the client's user agent and
