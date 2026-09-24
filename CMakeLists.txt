@@ -24,6 +24,7 @@ endfunction()
 add_library(ytres STATIC
     include/ytres/ytres.h
     include/ytres/http.h
+    src/url_parse.h src/url_parse.cpp
     src/format_pick.cpp
 )
 target_include_directories(ytres
