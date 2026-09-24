@@ -82,12 +82,12 @@ Resolver::~Resolver() = default;
 
 Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &request)
 {
-    if (!impl) {
-        return {{Error::BadInput, "This Resolver has been moved from"}, {}};
-    }
     // No exception crosses the public API. The enum has no code for a bug or
     // an exhausted heap; Parse is the nearest.
     try {
+        if (!impl) {
+            return {{Error::BadInput, "This Resolver has been moved from"}, {}};
+        }
         return impl->resolve(urlOrId, request);
     } catch (const std::exception &e) {
         return {{Error::Parse, std::string("Unexpected failure: ") + e.what()}, {}};
@@ -156,11 +156,13 @@ Result<std::string> Resolver::Impl::fetchVisitorData(const innertube::ClientDef 
         log(LogLevel::Warning, "No watch page (" + page.status.message + "), so no visitor data");
         return {};
     }
-    std::string visitorData = watchpage::visitorData(page.value.body);
-    if (visitorData.empty()) {
+    watchpage::VisitorData found = watchpage::visitorData(page.value.body);
+    if (found.value.empty() && !found.refused.empty()) {
+        log(LogLevel::Warning, "Refused the watch page's visitor data (" + found.refused + "), so none is sent");
+    } else if (found.value.empty()) {
         log(LogLevel::Warning, "The watch page has no visitor data (HTTP " + std::to_string(page.value.status) + ")");
     }
-    return {{}, std::move(visitorData)};
+    return {{}, std::move(found.value)};
 }
 
 // Sends one request within what is left of the resolve's deadline.

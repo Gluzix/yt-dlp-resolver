@@ -16,10 +16,18 @@ namespace ytres::watchpage {
 // no other header, as the notes say.
 HttpRequest request(const innertube::ClientDef &client, const std::string &videoId);
 
+struct VisitorData
+{
+    std::string value;   // empty when the page has none fit to send
+    std::string refused; // why a value the page did carry was not used; empty if none was refused
+};
+
 // INNERTUBE_CONTEXT.client.visitorData out of the first ytcfg.set({...}) in
-// the page that has it; empty when none does. A value that is not 1 to 1024
-// characters of [A-Za-z0-9%_=-] counts as none: it is sent as a header.
-// Pure, like everything that reads YouTube's answers.
-std::string visitorData(std::string_view html);
+// the page that has a value fit to send. It goes out as a header, so it must
+// be 1 to 4096 characters of [A-Za-z0-9%_=+/-]. A value that is not gets
+// refused, and refused says why: were YouTube's token to outgrow the limit,
+// the log would say so instead of every resolve quietly meeting the bot
+// check again. Pure, like everything that reads YouTube's answers.
+VisitorData visitorData(std::string_view html);
 
 }

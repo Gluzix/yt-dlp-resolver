@@ -4,13 +4,15 @@
 
 #include <nlohmann/json.hpp>
 
+#include <utility>
+
 namespace ytres::watchpage {
 
 namespace {
 
 using nlohmann::json;
 
-const size_t MAX_VISITOR_DATA = 1024;
+const size_t MAX_VISITOR_DATA = 4096;
 
 // One past the brace that closes the JSON object opening at text[open];
 // npos if it never closes. Braces inside strings do not count.
@@ -44,34 +46,38 @@ const json *member(const json &object, const char *key)
     return it != object.end() ? &*it : nullptr;
 }
 
-// The value becomes an HTTP header, so only what base64url and percent
-// encoding use gets through: a CR or LF in a doctored page must never split
-// the request. YouTube's is 558 characters today.
-bool isHeaderSafe(const std::string &value)
+// Why value may not go out as a header; empty when it may. Only what base64
+// and percent encoding use gets through: a CR or LF in a doctored page must
+// never split the request. YouTube's is 558 characters today.
+std::string headerRefusal(const json &value)
 {
-    if (value.empty() || value.size() > MAX_VISITOR_DATA) {
-        return false;
+    if (!value.is_string()) {
+        return "not a string";
     }
-    for (char c : value) {
+    const std::string &text = value.get_ref<const std::string &>();
+    if (text.empty()) {
+        return "empty";
+    }
+    if (text.size() > MAX_VISITOR_DATA) {
+        return std::to_string(text.size()) + " characters, over " + std::to_string(MAX_VISITOR_DATA);
+    }
+    for (char c : text) {
         const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-                             || c == '%' || c == '_' || c == '=' || c == '-';
+                             || c == '%' || c == '_' || c == '=' || c == '+' || c == '/' || c == '-';
         if (!allowed) {
-            return false;
+            return "a character outside [A-Za-z0-9%_=+/-]";
         }
     }
-    return true;
+    return {};
 }
 
-std::string visitorDataIn(const json &config)
+// The config's INNERTUBE_CONTEXT.client.visitorData as it stands; null when
+// it has none.
+const json *visitorDataIn(const json &config)
 {
     const json *context = member(config, "INNERTUBE_CONTEXT");
     const json *client = context ? member(*context, "client") : nullptr;
-    const json *visitorData = client ? member(*client, "visitorData") : nullptr;
-    if (!visitorData || !visitorData->is_string()) {
-        return {};
-    }
-    std::string value = visitorData->get<std::string>();
-    return isHeaderSafe(value) ? value : std::string{};
+    return client ? member(*client, "visitorData") : nullptr;
 }
 
 }
@@ -85,8 +91,9 @@ HttpRequest request(const innertube::ClientDef &client, const std::string &video
     return request;
 }
 
-std::string visitorData(std::string_view html)
+VisitorData visitorData(std::string_view html)
 {
+    VisitorData found;
     const std::string_view call = "ytcfg.set(";
     for (size_t at = html.find(call); at != std::string_view::npos; at = html.find(call, at + call.size())) {
         // The page also makes ytcfg.set('...') calls; only the object form
@@ -97,17 +104,22 @@ std::string visitorData(std::string_view html)
         }
         const size_t end = objectEnd(html, open);
         if (end == std::string_view::npos) {
-            return {};
+            break;
         }
         const json config = json::parse(html.data() + open, html.data() + end, nullptr, false);
-        if (config.is_object()) {
-            std::string found = visitorDataIn(config);
-            if (!found.empty()) {
-                return found;
-            }
+        const json *value = config.is_object() ? visitorDataIn(config) : nullptr;
+        if (!value) {
+            continue;
+        }
+        std::string refusal = headerRefusal(*value);
+        if (refusal.empty()) {
+            return {value->get<std::string>(), {}};
+        }
+        if (found.refused.empty()) {
+            found.refused = std::move(refusal);
         }
     }
-    return {};
+    return found;
 }
 
 }

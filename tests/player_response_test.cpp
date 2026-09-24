@@ -81,6 +81,10 @@ TEST_CASE("playability failures map to specific errors")
     const Case cases[] = {
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::LoginRequired},
         {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::Unavailable},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Private video"})", Error::Unavailable},
+        // "private" alone is not the phrase: this is still the bot check
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"subreason":{"simpleText":"Your answers stay private"}}}})", Error::LoginRequired},
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"})", Error::AgeRestricted},
         {R"({"status":"ERROR","reason":"This video has been removed by the uploader"})", Error::Unavailable},
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},
@@ -161,6 +165,18 @@ TEST_CASE("live segments, OTF streams and DRM formats are skipped, and alone the
     const auto none = parsePlayerResponse(playerResponse(OK, R"({"adaptiveFormats":[)" + unplayable + "]}"), "dQw4w9WgXcQ", 0);
     CHECK(none.status.code == Error::NoFormats);
     CHECK(none.status.message.find("live") != std::string::npos);
+}
+
+TEST_CASE("an empty drmFamilies or a zero targetDurationSec keeps the format, as in yt-dlp")
+{
+    const std::string formats =
+        R"({"adaptiveFormats":[{"itag":251,"url":"https://x/?expire=5","mimeType":"audio/webm","drmFamilies":[]},)"
+        R"({"itag":140,"url":"https://x/?expire=5","mimeType":"audio/mp4","targetDurationSec":0}]})";
+    const auto result = parsePlayerResponse(playerResponse(OK, formats), "dQw4w9WgXcQ", 0);
+    REQUIRE(result);
+    REQUIRE(result.value.formats.size() == 2);
+    CHECK(result.value.formats[0].itag == 251);
+    CHECK(result.value.formats[1].itag == 140);
 }
 
 TEST_CASE("SABR-only streaming data is NoFormats")

@@ -84,6 +84,7 @@ TEST_CASE("a resolve fetches the watch page, then asks the player with its visit
     CHECK(player.method == "POST");
     CHECK(player.url == "https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
     CHECK(player.headers == built.headers);
+    CHECK(player.body == built.body);
     CHECK(headerValue(player, "X-Goog-Visitor-Id") == VISITOR_DATA);
     CHECK(nlohmann::json::parse(player.body)["context"]["client"]["visitorData"] == VISITOR_DATA);
     CHECK_FALSE(test.logged(ytres::LogLevel::Warning));
@@ -96,7 +97,18 @@ TEST_CASE("without visitor data the player is still asked, and a warning says so
     REQUIRE(test.http->requests.size() == 2);
     CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id").empty());
     CHECK(nlohmann::json::parse(test.http->requests[1].body)["context"]["client"].count("visitorData") == 0);
-    CHECK(test.logged(ytres::LogLevel::Warning));
+    CHECK(test.logLine(ytres::LogLevel::Warning, "has no visitor data") != nullptr);
+}
+
+TEST_CASE("visitor data the page has but cannot be sent gets a warning of its own")
+{
+    // What a grown token would look like: past the 4096-character limit.
+    TestResolver test(R"(ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"visitorData":")" + std::string(5000, 'A') + R"("}}});)");
+    CHECK(test.resolver.resolve("dQw4w9WgXcQ"));
+    REQUIRE(test.http->requests.size() == 2);
+    CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id").empty());
+    CHECK(test.logLine(ytres::LogLevel::Warning, "Refused the watch page's visitor data (5000 characters") != nullptr);
+    CHECK(test.logLine(ytres::LogLevel::Warning, "has no visitor data") == nullptr);
 }
 
 TEST_CASE("a watch page that fails costs a warning, and the player is asked without visitor data")

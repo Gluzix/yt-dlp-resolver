@@ -24,7 +24,7 @@ public:
         requests.push_back(request);
         const bool player = request.url.find("/youtubei/v1/player") != std::string::npos;
         const ytres::Status &failure = player ? playerFailure : pageFailure;
-        if (!failure) {
+        if (failure.code != ytres::Error::Ok) {
             return {failure, {}};
         }
         ytres::Result<ytres::HttpResponse> result{{}, {player ? playerStatus : pageStatus, player ? playerBody : watchPage}};

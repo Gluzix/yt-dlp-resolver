@@ -64,6 +64,31 @@ bool readBool(const json &object, const char *key)
     return it != object.end() && it->is_boolean() && it->get<bool>();
 }
 
+// Python's truth test, which is how yt-dlp asks about a field: present but
+// 0, "" or [] counts as absent.
+bool isTruthy(const json &object, const char *key)
+{
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return false;
+    }
+    switch (it->type()) {
+    case json::value_t::boolean:
+        return it->get<bool>();
+    case json::value_t::number_integer:
+    case json::value_t::number_unsigned:
+    case json::value_t::number_float:
+        return it->get<double>() != 0.0;
+    case json::value_t::string:
+        return !it->get_ref<const std::string &>().empty();
+    case json::value_t::array:
+    case json::value_t::object:
+        return !it->empty();
+    default:
+        return false; // null
+    }
+}
+
 std::int64_t toInt64(std::string_view text)
 {
     std::int64_t value = 0;
@@ -193,7 +218,7 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
     if (mentionsAny(text, {"your country", "your region"})) {
         return {Error::GeoBlocked, message};
     }
-    if (mentionsAny(text, {"private"})) {
+    if (mentionsAny(text, {"private video", "video is private"})) {
         return {Error::Unavailable, message};
     }
     if (status == "LOGIN_REQUIRED") {
@@ -284,7 +309,8 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
             }
             // yt-dlp never picks these: live segments need the manifest, OTF
             // streams need numbered fragment requests, DRM needs a licence.
-            if (entry.contains("targetDurationSec") || entry.contains("drmFamilies")
+            // It tests the first two for truth, so an empty one keeps the format.
+            if (isTruthy(entry, "targetDurationSec") || isTruthy(entry, "drmFamilies")
                 || readString(entry, "type") == "FORMAT_STREAM_TYPE_OTF") {
                 ++skipped.unplayable;
                 continue;
