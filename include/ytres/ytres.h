@@ -162,9 +162,13 @@ public:
     // first fetches a watch page (about 1.3 MB) for the visitor data without
     // which YouTube bot-checks most videos, and keeps it for up to 6 hours
     // for every later resolve on any thread. A bot check fetches the page
-    // once more and asks once more, within the same deadline. When every
-    // client in the ladder fails, the result is the last one's code, and its
-    // message names each client with what it answered.
+    // once more and asks once more, within the same deadline.
+    // When every client in the ladder fails, the result carries the most
+    // telling of their codes - BotCheck, then Http, then Parse, then
+    // NoFormats or PlayerScript - and its message names each client with
+    // what it answered. A Network, Timeout or Internal failure that ends the
+    // ladder after earlier clients failed keeps their answers in its
+    // message, and an earlier BotCheck outranks a later Network or Timeout.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
 
 private:

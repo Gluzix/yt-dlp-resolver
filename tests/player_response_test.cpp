@@ -103,11 +103,18 @@ TEST_CASE("playability failures map to specific errors")
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},
         {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube"})", Error::AgeRestricted},
         {R"({"status":"CONTENT_CHECK_REQUIRED","reason":"Viewer discretion is advised"})", Error::Unavailable},
-        // a refused client, whatever the reason says: by its Reload button in any language, else by the phrase
+        // a refused client, on UNPLAYABLE: by its Reload button in any language, else by the phrase
         {R"({"status":"UNPLAYABLE","reason":"Film jest niedost\u0119pny","errorScreen":{"playerErrorMessageRenderer":)"
          R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::NoFormats},
         {R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
          R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::NoFormats},
+        // but neither the button nor the phrase hides what the rest of the answer says
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::BotCheck},
+        {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube","errorScreen":)"
+         R"({"playerErrorMessageRenderer":{"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::AgeRestricted},
+        {R"({"status":"ERROR","reason":"This video is unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::Unavailable},
     };
     for (const Case &c : cases) {
         const std::string playability = c.playability;

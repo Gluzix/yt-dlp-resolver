@@ -245,12 +245,6 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
         message += (message.back() == '.' ? " " : ". ") + subreason; // joined as yt-dlp joins them
     }
     const std::string text = reason + " " + subreason;
-    // "Video unavailable. The page needs to be reloaded." says nothing about
-    // the video: YouTube will not serve this client, and another may still
-    // get the formats.
-    if (reloadAsked || mentionsAny(text, {"page needs to be reloaded"})) {
-        return {Error::NoFormats, "YouTube refused the client: " + message};
-    }
     // Age gates and private videos arrive as LOGIN_REQUIRED too, so the reason
     // decides first.
     if (mentionsAny(text, {"confirm your age", "age-restricted", "age restricted", "inappropriate"})) {
@@ -266,6 +260,11 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
         // "Sign in to confirm you're not a bot" is about who asks; anything
         // else left under LOGIN_REQUIRED is a real sign-in wall.
         return {mentionsAny(text, {"not a bot"}) ? Error::BotCheck : Error::LoginRequired, message};
+    }
+    // Only what would otherwise be Unavailable: "Video unavailable. The page
+    // needs to be reloaded." on UNPLAYABLE says nothing about the video.
+    if (status == "UNPLAYABLE" && (reloadAsked || mentionsAny(text, {"page needs to be reloaded"}))) {
+        return {Error::NoFormats, "YouTube refused the client: " + message};
     }
     return {Error::Unavailable, message};
 }

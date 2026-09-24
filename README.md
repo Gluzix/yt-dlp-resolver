@@ -76,6 +76,13 @@ each:
 | `Internal` | A bug or a resource failure inside the library, never YouTube's doing. | Log it as a bug; another resolver may still get the video. |
 | `BadInput` | Not a YouTube video link or id, or an empty or unknown client list. | Fix the call. |
 
+When every client in the ladder fails, the code is the most telling of their
+answers: `BotCheck` first, then `Http`, then `Parse`, then `NoFormats`. A
+`Network`, `Timeout` or `Internal` failure that ends the ladder after earlier
+clients failed keeps their answers in its message, and an earlier `BotCheck`
+outranks a later `Network` or `Timeout`. `Cancelled` and the video's own
+codes always come back as they are, with YouTube's words.
+
 `PlayerScript` is reserved for a JavaScript tier that does not exist.
 
 ## Live tests

@@ -27,7 +27,8 @@ inline std::string headerValue(const ytres::HttpRequest &request, const std::str
 // playerBodyQueue while it lasts, else the asking client's entry in
 // playerBodyByClient, else playerBody; any other request (the watch page)
 // gets watchPage; and every request is kept for the test to look at, with
-// the time it arrived.
+// the time it arrived. A failure set for the asking client, or for all
+// player requests or the page, comes back instead of a response.
 class FakeHttpClient : public ytres::HttpClient
 {
 public:
@@ -53,12 +54,16 @@ public:
                 return {{ytres::Error::Timeout, "Timeout was reached"}, {}};
             }
         }
-        const ytres::Status &failure = player ? playerFailure : pageFailure;
+        const std::string client = headerValue(request, "X-YouTube-Client-Name");
+        const auto clientFailure = playerFailureByClient.find(client);
+        const ytres::Status &failure = !player                                       ? pageFailure
+                                       : clientFailure != playerFailureByClient.end() ? clientFailure->second
+                                                                                      : playerFailure;
         if (failure.code != ytres::Error::Ok) {
             return {failure, {}};
         }
         std::string body = player ? playerBody : watchPage;
-        const auto byClient = playerBodyByClient.find(headerValue(request, "X-YouTube-Client-Name"));
+        const auto byClient = playerBodyByClient.find(client);
         if (player && !playerBodyQueue.empty()) {
             body = std::move(playerBodyQueue.front());
             playerBodyQueue.pop_front();
@@ -80,6 +85,7 @@ public:
     long playerStatus{200};
     long pageStatus{200};
     ytres::Status playerFailure; // not Ok: returned instead of a response
+    std::map<std::string, ytres::Status> playerFailureByClient; // by X-YouTube-Client-Name, ahead of playerFailure
     ytres::Status pageFailure;
     std::chrono::milliseconds playerDelay{0}; // how long each request takes to answer
     std::chrono::milliseconds pageDelay{0};

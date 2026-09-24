@@ -29,9 +29,11 @@
 //   language an age gate, a private video or the bot check reads as
 //   LoginRequired and a region block as Unavailable.
 // - A client YouTube will not serve as asked - web without a PO Token - gets
-//   "Video unavailable. The page needs to be reloaded." with a RELOAD_PAGE
-//   button. That is NoFormats, a failure of the client, not Unavailable: the
-//   ladder must move on rather than give the video up.
+//   UNPLAYABLE, "Video unavailable. The page needs to be reloaded.", with a
+//   RELOAD_PAGE button. That is NoFormats, a failure of the client, not
+//   Unavailable: the ladder must move on rather than give the video up. Only
+//   what would otherwise be Unavailable: a bot check, an age gate, a private
+//   video or a region block keeps its code whatever button it carries.
 // =======================================================
 namespace ytres::innertube {
 

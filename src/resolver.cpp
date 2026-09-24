@@ -70,6 +70,24 @@ bool triesNextClient(Error error)
     return false;
 }
 
+// How much a failure that passes the video on tells the caller, for the code
+// a ladder that runs out reports. The bot check comes first: the caller must
+// fall back and should stop asking for a while, and a client that can never
+// play here (web, without a PO Token) must not bury it under NoFormats.
+int weight(Error error)
+{
+    switch (error) {
+    case Error::BotCheck:
+        return 3;
+    case Error::Http: // a 429 or a 5xx is YouTube's view of the caller too
+        return 2;
+    case Error::Parse:
+        return 1;
+    default: // NoFormats, PlayerScript: what the client can read, known in advance
+        return 0;
+    }
+}
+
 }
 
 // A Resolver must stay safe to call from several threads at once: the bot
@@ -170,15 +188,16 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         return {visitorData.status, {}};
     }
     bool refreshed = false;
-    std::string answers; // "<client>: <message>" for each client that failed
-    Result<VideoInfo> info;
+    std::string answers;        // "<client>: <message>" for each client that passed the video on
+    Error reported = Error::Ok; // the most telling of their codes
     for (size_t i = 0; i < ladder.size(); ++i) {
         const innertube::ClientDef &client = *ladder[i];
-        info = askPlayer(client, visitorData.value, call);
+        Result<VideoInfo> info = askPlayer(client, visitorData.value, call);
         // The cached visitor data may have worn out, or YouTube may have
-        // taken against this one: fetch the page once more and ask once
-        // more, within the same deadline. Once per resolve: the fresh value
-        // serves the clients after this one too.
+        // taken against this one: try once to fetch fresh visitor data and,
+        // when the page brings some, ask once more, within the same deadline.
+        // Once per resolve: the fresh value serves the clients after this one
+        // too.
         if (info.status.code == Error::BotCheck && !refreshed) {
             refreshed = true;
             log(LogLevel::Warning, "Bot check for " + call.videoId + " on the " + client.key
@@ -195,18 +214,32 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         if (info) {
             return info;
         }
-        if (!triesNextClient(info.status.code)) {
+        const Error code = info.status.code;
+        const std::string answer = std::string(client.key) + ": " + info.status.message;
+        if (!triesNextClient(code)) {
             log(LogLevel::Debug, std::string("The ") + client.key + " client's answer ends the resolve: " + info.status.message);
-            return info;
+            // The call's cancel and the video's own failures keep their code
+            // and YouTube's words. A network, deadline or library failure
+            // after earlier clients passed the video on keeps what they
+            // answered, and an earlier bot check outranks the network and the
+            // deadline: the caller falls back either way, but only the bot
+            // check tells it to leave the library alone for a while.
+            if (answers.empty() || (code != Error::Network && code != Error::Timeout && code != Error::Internal)) {
+                return info;
+            }
+            const bool botCheckFirst = reported == Error::BotCheck && code != Error::Internal;
+            return {{botCheckFirst ? Error::BotCheck : code, answers + "; " + answer}, {}};
         }
-        answers += (answers.empty() ? "" : "; ") + std::string(client.key) + ": " + info.status.message;
+        if (reported == Error::Ok || weight(code) > weight(reported)) {
+            reported = code;
+        }
+        answers += (answers.empty() ? "" : "; ") + answer;
         if (i + 1 < ladder.size()) {
             log(LogLevel::Warning, std::string("The ") + client.key + " client failed for " + call.videoId + " ("
                                        + info.status.message + "); asking the " + ladder[i + 1]->key + " client next");
         }
     }
-    info.status.message = std::move(answers);
-    return info;
+    return {{reported, std::move(answers)}, {}};
 }
 
 // The visitor data for a player request: the cached value while it is fresh,
