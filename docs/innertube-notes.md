@@ -153,7 +153,43 @@ yt-dlp also retries on 5xx. The POC does not need to.
 
 ## Verified live
 
-*(filled in by whoever runs the POC first: date, the ids tried, whether the
-bare request worked without visitor data, whether every format had a plain
-`url`, which itag `bestAudio()` picked, and whether `expire=` was present in
-the urls.)*
+2026-09-24, from the development PC in Poland, through `ytres_cli` (libcurl
+8.18.0 on Schannel), with yt-dlp 2026.08.19 for comparison.
+
+- **The bare request is not enough.** Without visitor data the player request
+  answered `dQw4w9WgXcQ` with `OK` and formats, but the nine other videos
+  tried (`jNQXAC9IVRw`, `9bZkp7q19f0`, `kJQP7kiw5Fk`, `JGwWNGJdvx8`,
+  `fJ9rUzIMcZQ`, `hTWKbfoikeg`, `YQHsXMglC9A`, `OPf0YbXqDm0`, `60ItHLz5WEA`)
+  came back HTTP 200 with `LOGIN_REQUIRED`, reason "Sign in to confirm you’re
+  not a bot", and no `streamingData`. `jNQXAC9IVRw` failed that way three
+  times with `dQw4w9WgXcQ` still answering in between, so it is no blanket
+  block on the IP.
+- **Step 1 fixed all of them.** With the watch page's visitor data sent as
+  `X-Goog-Visitor-Id` and as `context.client.visitorData`, all ten came back
+  `OK`, and the library now does this on every resolve. The watch page GET
+  with the visionos user agent got a 200 straight away, no consent redirect.
+  Its first `ytcfg.set(` takes a string; the first object form sits about
+  10 KB in and carries `INNERTUBE_CONTEXT.client.visitorData`. There is no
+  top-level `VISITOR_DATA` in it.
+- **The page is the cost.** It is about 1.3 MB for a real video and took 0.7
+  to 1.1 s to fetch, most of a resolve: 1.1 to 1.7 s with it, against 0.3 s
+  for the one bare request that worked.
+- **Every format had a plain `url`.** No `signatureCipher` in any `OK`
+  answer, and no url carried an `n` parameter. `serverAbrStreamingUrl`
+  (SABR) and `hlsManifestUrl` came alongside the plain formats.
+- **No muxed formats.** `streamingData.formats` was absent. `dQw4w9WgXcQ` had
+  27 entries in `adaptiveFormats`: 22 video, 5 audio (139, 140, 249, 250,
+  251).
+- **`bestAudio()` picked 251 for all ten.** For `dQw4w9WgXcQ`: Opus,
+  `averageBitrate` 128930 (`bitrate` 136544), 3433755 bytes. A HEAD request
+  on its url answered 200, `audio/webm`, with that Content-Length.
+- **`expire=` was present** in every url, one value per response, about six
+  hours out; `expiresInSeconds` was 21540.
+- **`00000000000`** answered `ERROR`, "This video is unavailable", with no
+  `videoDetails`.
+- **yt-dlp agrees.** Its `-f bestaudio` on `dQw4w9WgXcQ` printed the same
+  title and page url and format 251, from a url also marked `c=VISIONOS`, in
+  4.8 s.
+
+The responses in `tests/fixtures/` come from this run, with the requesting
+IP replaced by 203.0.113.7 and the visitor data by "FIXTURE".

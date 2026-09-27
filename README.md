@@ -18,7 +18,7 @@ what YouTube answered to it.
 
 ## Requirements
 
-Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.14+ and vcpkg at
+Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.20+ and vcpkg at
 `C:/vcpkg`. libcurl, nlohmann-json and doctest come through the `vcpkg.json`
 manifest; the first configure builds libcurl from source and takes a few
 minutes.
@@ -45,8 +45,9 @@ per line: the three lines the bot reads from yt-dlp today. On failure it
 prints the error code and YouTube's reason to stderr and exits with 1.
 
 - `--formats` lists every usable format instead.
-- `--dump <file>` also writes YouTube's raw player response to `<file>`; that
-  is how fixtures are recorded.
+- `--dump <file>` also writes YouTube's player response to `<file>`; that is
+  how fixtures are recorded. The dump is scrubbed of the requesting IP and
+  visitor data automatically.
 
 Stream URLs expire after a few hours and work only from the IP address that
 asked for them.
