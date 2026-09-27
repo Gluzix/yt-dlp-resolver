@@ -63,12 +63,20 @@ TEST_CASE("the recorded unavailable response is Unavailable with YouTube's reaso
     CHECK(result.status.message == "This video is unavailable");
 }
 
-TEST_CASE("the recorded bot check is LoginRequired with YouTube's reason")
+TEST_CASE("the recorded bot check is BotCheck with YouTube's reason")
 {
     // What a player request without visitor data got for jNQXAC9IVRw.
     const auto result = resolveWithFixture("player_bot_check.json", "jNQXAC9IVRw");
-    CHECK(result.status.code == Error::LoginRequired);
+    CHECK(result.status.code == Error::BotCheck);
     CHECK(result.status.message.find("not a bot") != std::string::npos);
+}
+
+TEST_CASE("the recorded web answer is NoFormats: YouTube refused the client, not the video")
+{
+    // What the web client got for dQw4w9WgXcQ without a PO Token, visitor data and all.
+    const auto result = parsePlayerResponse(readFixture("player_web_dQw4w9WgXcQ.json"), "dQw4w9WgXcQ", 0);
+    CHECK(result.status.code == Error::NoFormats);
+    CHECK(result.status.message == "YouTube refused the client: Video unavailable. The page needs to be reloaded.");
 }
 
 TEST_CASE("playability failures map to specific errors")
@@ -79,17 +87,34 @@ TEST_CASE("playability failures map to specific errors")
         Error expected;
     };
     const Case cases[] = {
-        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot"})", Error::BotCheck},
+        // with the curly apostrophe YouTube sends, as JSON escapes it
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you\u2019re not a bot"})", Error::BotCheck},
         {R"({"status":"LOGIN_REQUIRED","reason":"This video is private"})", Error::Unavailable},
         {R"({"status":"LOGIN_REQUIRED","reason":"Private video"})", Error::Unavailable},
         // "private" alone is not the phrase: this is still the bot check
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot","errorScreen":{"playerErrorMessageRenderer":)"
-         R"({"subreason":{"simpleText":"Your answers stay private"}}}})", Error::LoginRequired},
+         R"({"subreason":{"simpleText":"Your answers stay private"}}}})", Error::BotCheck},
+        // a sign-in wall that is no bot check stays LoginRequired, reason or none
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to view this video"})", Error::LoginRequired},
+        {R"({"status":"LOGIN_REQUIRED"})", Error::LoginRequired},
         {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"})", Error::AgeRestricted},
         {R"({"status":"ERROR","reason":"This video has been removed by the uploader"})", Error::Unavailable},
         {R"({"status":"UNPLAYABLE","reason":"The uploader has not made this video available in your country"})", Error::GeoBlocked},
         {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube"})", Error::AgeRestricted},
         {R"({"status":"CONTENT_CHECK_REQUIRED","reason":"Viewer discretion is advised"})", Error::Unavailable},
+        // a refused client, on UNPLAYABLE: by its Reload button in any language, else by the phrase
+        {R"({"status":"UNPLAYABLE","reason":"Film jest niedost\u0119pny","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::NoFormats},
+        {R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::NoFormats},
+        // but neither the button nor the phrase hides what the rest of the answer says
+        {R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"proceedButton":{"buttonRenderer":{"command":{"signalAction":{"signal":"RELOAD_PAGE"}}}}}}})", Error::BotCheck},
+        {R"({"status":"UNPLAYABLE","reason":"This video is age-restricted and only available on YouTube","errorScreen":)"
+         R"({"playerErrorMessageRenderer":{"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::AgeRestricted},
+        {R"({"status":"ERROR","reason":"This video is unavailable","errorScreen":{"playerErrorMessageRenderer":)"
+         R"({"subreason":{"simpleText":"The page needs to be reloaded."}}}})", Error::Unavailable},
     };
     for (const Case &c : cases) {
         const std::string playability = c.playability;

@@ -14,6 +14,8 @@ using ytres::innertube::playerRequest;
 namespace {
 
 const char *const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+const char *const CHROME_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 
 // The body in docs/innertube-notes.md, verbatim.
 const char *const NOTES_BODY = R"json({
@@ -79,6 +81,30 @@ TEST_CASE("visitor data goes out as a header and in the client context, and nowh
 
     json expectedBody = json::parse(NOTES_BODY);
     expectedBody["context"]["client"]["visitorData"] = visitorData;
+    CHECK(json::parse(request.body) == expectedBody);
+}
+
+TEST_CASE("the web client is yt-dlp's web row: no user agent in its context, desktop Chrome in the header")
+{
+    const ytres::innertube::ClientDef *web = findClient(ytres::ClientId::Web);
+    REQUIRE(web != nullptr);
+    CHECK(web->contextClientName == 1);
+    CHECK(web->requireJsPlayer);
+
+    const auto request = playerRequest(*web, "dQw4w9WgXcQ", "en", "");
+    const Headers expectedHeaders = {
+        {"Content-Type", "application/json"},
+        {"X-YouTube-Client-Name", "1"},
+        {"X-YouTube-Client-Version", "2.20260708.00.00"},
+        {"Origin", "https://www.youtube.com"},
+        {"User-Agent", CHROME_UA},
+    };
+    CHECK(request.headers == expectedHeaders);
+
+    json expectedBody = json::parse(NOTES_BODY);
+    expectedBody["context"]["client"] = {
+        {"clientName", "WEB"}, {"clientVersion", "2.20260708.00.00"}, {"hl", "en"}, {"timeZone", "UTC"}, {"utcOffsetMinutes", 0},
+    };
     CHECK(json::parse(request.body) == expectedBody);
 }
 

@@ -24,10 +24,16 @@
 //   library does not run, so parsePlayerResponse() skips it. It also skips
 //   what yt-dlp never picks, url or not: live segments, OTF streams, DRM.
 // - In parsePlayerResponse() the reason text decides before the status:
-//   LOGIN_REQUIRED covers age gates and private videos as well as the bot
-//   check. The phrases are English (hl=en); in another language an age gate
-//   or a private video reads as LoginRequired and a region block as
-//   Unavailable.
+//   LOGIN_REQUIRED covers age gates, private videos and the bot check as
+//   well as a real sign-in wall. The phrases are English (hl=en); in another
+//   language an age gate, a private video or the bot check reads as
+//   LoginRequired and a region block as Unavailable.
+// - A client YouTube will not serve as asked - web without a PO Token - gets
+//   UNPLAYABLE, "Video unavailable. The page needs to be reloaded.", with a
+//   RELOAD_PAGE button. That is NoFormats, a failure of the client, not
+//   Unavailable: the ladder must move on rather than give the video up. Only
+//   what would otherwise be Unavailable: a bot check, an age gate, a private
+//   video or a region block keeps its code whatever button it carries.
 // =======================================================
 namespace ytres::innertube {
 
@@ -42,18 +48,28 @@ struct ClientDef
     const char *clientVersion;     // also sent as X-YouTube-Client-Version
     const char *deviceMake;
     const char *deviceModel;
-    const char *userAgent;         // also sent as User-Agent
+    const char *userAgent;         // also the User-Agent header; see userAgentHeader()
     const char *osName;
     const char *osVersion;
-    bool requireJsPlayer;          // must stay false: there is no JS tier
+    // True when YouTube ciphers the client's formats for its player
+    // JavaScript to undo. The library runs none, so such a client can only
+    // end in NoFormats.
+    bool requireJsPlayer;
 };
 
 // The table's row for id; null when it has none.
 const ClientDef *findClient(ClientId id);
 
+// The User-Agent header for the client's requests, as yt-dlp sends it: the
+// userAgent of its context, or for a client without one (web), the desktop
+// Chrome that yt-dlp's HTTP layer poses as.
+const char *userAgentHeader(const ClientDef &client);
+
 // POST /youtubei/v1/player for one video, as yt-dlp sends it for a client
-// that needs no JS player. language goes out as hl; visitorData, unless
-// empty, as X-Goog-Visitor-Id and as context.client.visitorData.
+// that needs no JS player: no signatureTimestamp, whichever the client, since
+// that comes from the player JavaScript. language goes out as hl;
+// visitorData, unless empty, as X-Goog-Visitor-Id and as
+// context.client.visitorData.
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData);
 

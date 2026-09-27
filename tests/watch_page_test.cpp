@@ -47,17 +47,30 @@ TEST_CASE("no ytcfg, or a broken one, gives no visitor data and refuses none")
     }
 }
 
-TEST_CASE("the watch page request carries the client's user agent and nothing else")
+TEST_CASE("the watch page request carries the client's user agent and the consent cookie, nothing else")
 {
     const ytres::innertube::ClientDef *client = ytres::innertube::findClient(ytres::ClientId::VisionOS);
     REQUIRE(client != nullptr);
     const ytres::HttpRequest request = ytres::watchpage::request(*client, "dQw4w9WgXcQ");
     CHECK(request.method == "GET");
     CHECK(request.url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-    REQUIRE(request.headers.size() == 1);
+    REQUIRE(request.headers.size() == 2);
     CHECK(request.headers[0].first == "User-Agent");
     CHECK(request.headers[0].second == client->userAgent);
+    CHECK(request.headers[1].first == "Cookie");
+    CHECK(request.headers[1].second == "SOCS=CAI");
     CHECK(request.body.empty());
+}
+
+TEST_CASE("a client with no user agent of its own fetches the page as desktop Chrome")
+{
+    const ytres::innertube::ClientDef *web = ytres::innertube::findClient(ytres::ClientId::Web);
+    REQUIRE(web != nullptr);
+    REQUIRE(web->userAgent == nullptr);
+    const ytres::HttpRequest request = ytres::watchpage::request(*web, "dQw4w9WgXcQ");
+    REQUIRE(request.headers.size() == 2);
+    CHECK(request.headers[0].second.find("Chrome/") != std::string::npos);
+    CHECK(request.headers[0].second == ytres::innertube::userAgentHeader(*web));
 }
 
 TEST_CASE("visitor data unfit to travel as a header is refused, saying why")

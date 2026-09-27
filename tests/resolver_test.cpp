@@ -1,72 +1,22 @@
 #include "fake_http_client.h"
 #include "innertube.h"
+#include "test_resolver.h"
 
 #include <doctest/doctest.h>
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
 #include <chrono>
 #include <memory>
+#include <new>
+#include <stdexcept>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 using ytres::Error;
 using namespace std::chrono_literals;
 
-namespace {
-
-const char *const VISITOR_DATA = "CgtGSVhUVVJFAAAA%3D%3D";
-const std::string WATCH_PAGE =
-    R"(<script>ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtGSVhUVVJFAAAA%3D%3D"}}});</script>)";
-
-// A Resolver on a FakeHttpClient that answers with the recorded
-// dQw4w9WgXcQ response, keeping whatever it logs.
-class TestResolver
-{
-public:
-    explicit TestResolver(const std::string &watchPage = WATCH_PAGE, std::chrono::milliseconds requestTimeout = 10s)
-        : http(std::make_shared<FakeHttpClient>(readFixture("player_dQw4w9WgXcQ.json"), watchPage))
-        , resolver(options(requestTimeout))
-    {
-    }
-
-    bool logged(ytres::LogLevel level) const
-    {
-        return std::any_of(logs.begin(), logs.end(), [level](const auto &entry) { return entry.first == level; });
-    }
-
-    // The first line logged at level that contains text; null if none.
-    const std::string *logLine(ytres::LogLevel level, const std::string &text) const
-    {
-        for (const auto &[loggedLevel, line] : logs) {
-            if (loggedLevel == level && line.find(text) != std::string::npos) {
-                return &line;
-            }
-        }
-        return nullptr;
-    }
-
-    std::shared_ptr<FakeHttpClient> http;
-    std::vector<std::pair<ytres::LogLevel, std::string>> logs;
-    ytres::Resolver resolver;
-
-private:
-    ytres::Resolver::Options options(std::chrono::milliseconds requestTimeout)
-    {
-        ytres::Resolver::Options made;
-        made.http = http;
-        made.log = [this](ytres::LogLevel level, std::string_view text) { logs.emplace_back(level, std::string(text)); };
-        made.requestTimeout = requestTimeout;
-        return made;
-    }
-};
-
-}
-
-TEST_CASE("a resolve fetches the watch page, then asks the player with its visitor data")
+TEST_CASE("a cold resolve fetches the watch page, then asks the player with its visitor data")
 {
     TestResolver test;
     const auto result = test.resolver.resolve("https://youtu.be/dQw4w9WgXcQ");
@@ -142,6 +92,28 @@ TEST_CASE("a resolve cancelled up front sends nothing")
     request.cancelled = [] { return true; };
     CHECK(test.resolver.resolve("dQw4w9WgXcQ", request).status.code == Error::Cancelled);
     CHECK(test.http->requests.empty());
+}
+
+TEST_CASE("a cancel check that throws is Internal: the caller's bug, not a cancel")
+{
+    TestResolver test;
+    ytres::Request request;
+    request.cancelled = []() -> bool { throw std::runtime_error("the check broke"); };
+    const auto result = test.resolver.resolve("dQw4w9WgXcQ", request);
+    CHECK(result.status.code == Error::Internal);
+    CHECK(test.http->requests.empty());
+}
+
+TEST_CASE("a request timeout of zero or less is BadInput, and nothing is sent")
+{
+    for (const std::chrono::milliseconds timeout : {0ms, -5ms}) {
+        CAPTURE(timeout.count());
+        TestResolver test(WATCH_PAGE, timeout);
+        const auto result = test.resolver.resolve("dQw4w9WgXcQ");
+        CHECK(result.status.code == Error::BadInput);
+        CHECK(result.status.message == "Options::requestTimeout must be positive");
+        CHECK(test.http->requests.empty());
+    }
 }
 
 TEST_CASE("the cancel check travels with every request")
@@ -254,6 +226,40 @@ TEST_CASE("a failed player request passes its status on")
     CHECK(test.resolver.resolve("dQw4w9WgXcQ").status.code == Error::Timeout);
 }
 
+TEST_CASE("an exception that reaches resolve() is Internal, never a client's failure")
+{
+    // Breaks the HttpClient contract on purpose: send() must not throw.
+    class ThrowingHttpClient : public ytres::HttpClient
+    {
+    public:
+        explicit ThrowingHttpClient(bool standard_)
+            : standard(standard_)
+        {
+        }
+
+        ytres::Result<ytres::HttpResponse> send(const ytres::HttpRequest &) override
+        {
+            if (standard) {
+                throw std::bad_alloc();
+            }
+            throw 42;
+        }
+
+    private:
+        bool standard;
+    };
+
+    for (const bool standard : {true, false}) {
+        CAPTURE(standard);
+        ytres::Resolver::Options options;
+        options.http = std::make_shared<ThrowingHttpClient>(standard);
+        ytres::Resolver resolver(options);
+        const auto result = resolver.resolve("dQw4w9WgXcQ");
+        CHECK(result.status.code == Error::Internal);
+        CHECK(result.status.message.find("Unexpected failure") == 0);
+    }
+}
+
 static_assert(std::is_nothrow_move_constructible_v<ytres::Resolver>);
 static_assert(std::is_nothrow_move_assignable_v<ytres::Resolver>);
 static_assert(!std::is_copy_constructible_v<ytres::Resolver>);
@@ -273,9 +279,9 @@ TEST_CASE("a Resolver can come out of a factory and move, and a moved-from one r
     ytres::Resolver second; // its own libcurl client, which never gets to send
     second = std::move(first);
     CHECK(second.resolve("dQw4w9WgXcQ"));
-    CHECK(http->requests.size() == 4);
+    CHECK(http->requests.size() == 3); // the cache moved along: the player alone
 
     const auto moved = first.resolve("dQw4w9WgXcQ"); // NOLINT(bugprone-use-after-move): that is the point
     CHECK(moved.status.code == Error::BadInput);
-    CHECK(http->requests.size() == 4);
+    CHECK(http->requests.size() == 3);
 }

@@ -17,8 +17,9 @@
 //   Status says what went wrong, so a C or JNI wrapper need not care.
 // - Every string going in or out is UTF-8, and nothing converts code pages.
 // - One Resolver may be called from several threads at once: the bot
-//   resolves the next song while one plays. resolve() keeps no state between
-//   calls, and any cache added later needs a mutex.
+//   resolves the next song while one plays. The one thing its resolves share
+//   is the cached visitor data, behind a mutex that is never held across a
+//   request.
 // - Stream URLs die at VideoInfo::expiresAtUnix and work only from the IP
 //   address that resolved them.
 // =======================================================
@@ -35,6 +36,16 @@ enum class Error {
     NoFormats,       // playable, but nothing usable came back
     PlayerScript,    // base.js fetch or extraction failed (JS tier only)
     BadInput,
+    // YouTube wants proof that the caller is no bot ("Sign in to confirm
+    // you're not a bot"). It is about who asks, not about the video, and the
+    // library has tried once to fetch fresh visitor data and, when it got
+    // some, asked once more: fall back to another resolver, and stop asking
+    // this one for a while.
+    BotCheck,
+    // A bug or a resource failure inside the library - an exception, an
+    // exhausted heap, libcurl unable to make a handle - never YouTube's
+    // doing. Log it as a bug; another resolver may still get the video.
+    Internal,
 };
 
 struct Status
@@ -89,7 +100,11 @@ struct VideoInfo
     std::optional<Format> bestAudio() const;
 };
 
-// Per-call cancellation and deadline. cancelled may be empty.
+// Per-call cancellation and deadline. cancelled may be empty. deadline bounds
+// the whole call - the watch page, every client of the ladder and the bot
+// check's second try alike: each request gets the smaller of
+// Options::requestTimeout and what is left of it, and none is sent once it
+// has run out.
 struct Request
 {
     std::function<bool()> cancelled;
@@ -98,29 +113,37 @@ struct Request
 
 enum class LogLevel { Debug, Info, Warning, Error };
 
-// The InnerTube clients the resolver can pose as. VisionOS needs neither
-// YouTube's player JavaScript nor a PO Token.
-enum class ClientId { VisionOS };
+// The InnerTube clients the resolver can pose as, rows of yt-dlp's table.
+// VisionOS needs neither YouTube's player JavaScript nor a PO Token; it is
+// the one that plays. Web needs both, which the library does not have, so
+// YouTube turns it away and it ends in NoFormats: it is there to exercise
+// the client ladder, and as the pattern for the next client that works.
+enum class ClientId { VisionOS, Web };
 
 class Resolver
 {
 public:
     struct Options
     {
-        // Tried in order once there is a client ladder; for now only the
-        // first is used.
+        // The client ladder, tried in order until one gives formats. A
+        // failure about the client - BotCheck, NoFormats, Http, Parse,
+        // PlayerScript - passes the video on to the next; one about the
+        // video, the network, the call or the library ends the resolve there.
+        // Empty, or an id the library does not know, is BadInput.
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
-        // another language an age gate or a private video reports as
-        // LoginRequired and a region block as Unavailable. country is not
-        // sent yet: the player request yt-dlp makes carries no gl.
+        // another language an age gate, a private video or the bot check
+        // reports as LoginRequired - and the bot check gets no second try -
+        // and a region block as Unavailable. country is not sent yet: the
+        // player request yt-dlp makes carries no gl.
         std::string language{"en"}, country{"US"};
         std::shared_ptr<HttpClient> http;                   // null -> built-in libcurl
         // Called on the resolving thread, so it must cope with several at once.
         // May be empty.
         std::function<void(LogLevel, std::string_view)> log;
         // Bounds each HTTP request; Request::deadline bounds the whole resolve.
+        // Zero or less is BadInput.
         std::chrono::milliseconds requestTimeout{std::chrono::seconds{10}};
     };
 
@@ -136,9 +159,19 @@ public:
     ~Resolver();
 
     // Title, page url and every usable stream of one video. Accepts any
-    // youtube.com or youtu.be video link, or a bare 11-character id. Takes
-    // two requests: the watch page (about 1.3 MB), for the visitor data
-    // without which YouTube bot-checks most videos, then the player API.
+    // youtube.com or youtu.be video link, or a bare 11-character id.
+    // A warm Resolver asks the player API alone: one request. A cold one
+    // first fetches a watch page (about 1.3 MB) for the visitor data without
+    // which YouTube bot-checks most videos, and keeps it for up to 6 hours
+    // for every later resolve on any thread. A bot check makes it try once
+    // to fetch fresh visitor data and, when it gets some, ask once more,
+    // within the same deadline.
+    // When every client in the ladder fails, the result carries the most
+    // telling of their codes - BotCheck, then Http, then Parse, then
+    // NoFormats or PlayerScript - and its message names each client with
+    // what it answered. A Network, Timeout or Internal failure that ends the
+    // ladder after earlier clients failed keeps their answers in its
+    // message, and an earlier BotCheck outranks a later Network or Timeout.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
 
 private:

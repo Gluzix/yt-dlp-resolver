@@ -25,7 +25,14 @@
 
 namespace {
 
-const char *const USAGE = "usage: ytres_cli <url-or-id> [--formats] [--dump <file>]\n";
+const char *const USAGE = "usage: ytres_cli <url-or-id> [--formats] [--dump <file>] [--client visionos|web]\n";
+
+// What --client takes: yt-dlp's names for the clients, as the library's
+// table keeps them.
+const std::pair<std::string_view, ytres::ClientId> CLIENT_NAMES[] = {
+    {"visionos", ytres::ClientId::VisionOS},
+    {"web", ytres::ClientId::Web},
+};
 
 const char *errorName(ytres::Error error)
 {
@@ -43,6 +50,8 @@ const char *errorName(ytres::Error error)
     case ytres::Error::NoFormats: return "NoFormats";
     case ytres::Error::PlayerScript: return "PlayerScript";
     case ytres::Error::BadInput: return "BadInput";
+    case ytres::Error::BotCheck: return "BotCheck";
+    case ytres::Error::Internal: return "Internal";
     }
     return "Unknown";
 }
@@ -87,7 +96,18 @@ struct Arguments
     std::string target;
     bool formats{false};
     std::string dumpPath;
+    std::optional<ytres::ClientId> client; // the library's own ladder when empty
 };
+
+std::optional<ytres::ClientId> clientNamed(std::string_view name)
+{
+    for (const auto &[clientName, id] : CLIENT_NAMES) {
+        if (clientName == name) {
+            return id;
+        }
+    }
+    return std::nullopt;
+}
 
 bool parseArguments(int argc, char **argv, Arguments &args)
 {
@@ -100,6 +120,14 @@ bool parseArguments(int argc, char **argv, Arguments &args)
                 return false;
             }
             args.dumpPath = argv[i];
+        } else if (arg == "--client") {
+            if (++i >= argc) {
+                return false;
+            }
+            args.client = clientNamed(argv[i]);
+            if (!args.client) {
+                return false;
+            }
         } else if (arg.rfind("--", 0) == 0 || !args.target.empty()) {
             return false;
         } else {
@@ -111,11 +139,15 @@ bool parseArguments(int argc, char **argv, Arguments &args)
 
 // Every stream url names the requesting address: ?ip=/&ip= in queries,
 // /ip/<addr>/ in hlsManifestUrl's path, IPv6 percent-encoded. Visitor data
-// identifies the visitor to YouTube, so it goes too.
+// identifies the visitor to YouTube, and carries the country, so it goes
+// too, under both names it travels by: "visitorData", and the web client's
+// tracking parameter "visitor_data".
 std::string scrubbed(std::string text)
 {
     text = std::regex_replace(text, std::regex(R"(([?&])ip=[0-9A-Fa-f.:%]+)"), "$1ip=203.0.113.7");
     text = std::regex_replace(text, std::regex(R"(/ip/[0-9A-Fa-f.:%]+/)"), "/ip/203.0.113.7/");
+    text = std::regex_replace(text, std::regex(R"("key":"visitor_data","value":"[^"]*")"),
+                              R"("key":"visitor_data","value":"FIXTURE")");
     return std::regex_replace(text, std::regex(R"("visitorData":"[^"]*")"), R"("visitorData":"FIXTURE")");
 }
 
@@ -154,6 +186,9 @@ int main(int argc, char **argv)
     auto recorder = std::make_shared<RecordingHttpClient>(ytres::makeCurlHttpClient());
     ytres::Resolver::Options options;
     options.http = recorder;
+    if (args.client) {
+        options.clients = {*args.client};
+    }
     options.log = [](ytres::LogLevel level, std::string_view text) {
         if (level >= ytres::LogLevel::Warning) {
             std::cerr << text << '\n';

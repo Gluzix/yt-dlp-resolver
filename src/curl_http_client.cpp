@@ -5,6 +5,7 @@
 #include <climits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace ytres {
@@ -24,15 +25,41 @@ struct EasyDeleter
     void operator()(CURL *easy) const { curl_easy_cleanup(easy); }
 };
 
+struct MultiDeleter
+{
+    void operator()(CURLM *multi) const { curl_multi_cleanup(multi); }
+};
+
 struct SlistDeleter
 {
     void operator()(curl_slist *list) const { curl_slist_free_all(list); }
+};
+
+// Takes the easy handle off the multi handle when send() returns, however it
+// returns. Declared after both handles, so it runs before either cleanup:
+// the order libcurl documents.
+class Attachment
+{
+public:
+    Attachment(CURLM *multi_, CURL *easy_)
+        : multi(multi_)
+        , easy(easy_)
+    {
+    }
+    Attachment(const Attachment &) = delete;
+    Attachment &operator=(const Attachment &) = delete;
+    ~Attachment() { curl_multi_remove_handle(multi, easy); }
+
+private:
+    CURLM *multi;
+    CURL *easy;
 };
 
 struct Body
 {
     std::string bytes;
     bool tooLarge{false};
+    bool outOfMemory{false};
 };
 
 // libcurl calls back through C frames, which no exception may unwind: a
@@ -48,20 +75,67 @@ size_t onBody(char *data, size_t size, size_t count, void *userdata)
     try {
         body->bytes.append(data, length);
     } catch (...) {
+        body->outOfMemory = true;
         return 0;
     }
     return length;
 }
 
+// The caller's cancel check, asked by send() between polls and by libcurl's
+// progress callback. No exception may unwind through libcurl's C frames,
+// and send() throws nothing: a check that throws stops the transfer as a
+// cancel would, and threw has send() report Internal, since a check that
+// throws is the caller's bug, not a cancel.
+class CancelCheck
+{
+public:
+    explicit CancelCheck(const std::function<bool()> &cancelled_)
+        : cancelled(cancelled_)
+    {
+    }
+
+    bool operator()() noexcept
+    {
+        try {
+            return cancelled && cancelled();
+        } catch (...) {
+            threw = true;
+            return true;
+        }
+    }
+
+    bool threw{false};
+
+private:
+    const std::function<bool()> &cancelled;
+};
+
 // Non-zero aborts the transfer with CURLE_ABORTED_BY_CALLBACK.
 int onProgress(void *clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
 {
-    const auto *cancelled = static_cast<const std::function<bool()> *>(clientp);
-    try {
-        return (*cancelled)() ? 1 : 0;
-    } catch (...) {
-        return 1; // a cancel check that throws is taken as a cancel
+    return (*static_cast<CancelCheck *>(clientp))() ? 1 : 0;
+}
+
+// What a transfer the cancel check stopped comes back as.
+Result<HttpResponse> stoppedBy(const CancelCheck &check)
+{
+    if (check.threw) {
+        return {{Error::Internal, "The cancel check threw"}, {}};
     }
+    return {{Error::Cancelled, "Cancelled"}, {}};
+}
+
+// The result of the one transfer on multi once it has finished; nullopt if
+// libcurl reports none, which it should never do.
+std::optional<CURLcode> transferResult(CURLM *multi)
+{
+    int queued = 0;
+    while (const CURLMsg *message = curl_multi_info_read(multi, &queued)) {
+        if (message->msg == CURLMSG_DONE) {
+            return message->data.result;
+        }
+    }
+    return std::nullopt;
 }
 
 }
@@ -70,7 +144,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
 {
     const CURLcode initCode = globalInit();
     if (initCode != CURLE_OK) {
-        return {{Error::Network, std::string("libcurl failed to initialise: ") + curl_easy_strerror(initCode)}, {}};
+        return {{Error::Internal, std::string("libcurl failed to initialise: ") + curl_easy_strerror(initCode)}, {}};
     }
     if (request.method != "GET" && request.method != "POST") {
         return {{Error::BadInput, "Unsupported HTTP method: " + request.method}, {}};
@@ -78,13 +152,17 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     if (request.timeout.count() <= 0) {
         return {{Error::Timeout, "No time left to send the request"}, {}};
     }
-    if (request.cancelled && request.cancelled()) {
-        return {{Error::Cancelled, "Cancelled"}, {}};
+    // Declared before the handles, so that it outlives them: the progress
+    // callback keeps a pointer to it for as long as the easy handle lives.
+    CancelCheck cancelCheck(request.cancelled);
+    if (cancelCheck()) {
+        return stoppedBy(cancelCheck);
     }
 
+    std::unique_ptr<CURLM, MultiDeleter> multi(curl_multi_init());
     std::unique_ptr<CURL, EasyDeleter> easy(curl_easy_init());
-    if (!easy) {
-        return {{Error::Network, "libcurl could not create a handle"}, {}};
+    if (!multi || !easy) {
+        return {{Error::Internal, "libcurl could not create a handle"}, {}};
     }
     std::unique_ptr<curl_slist, SlistDeleter> headers;
     for (const auto &[name, value] : request.headers) {
@@ -93,7 +171,7 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
         curl_slist *appended = curl_slist_append(head, line.c_str());
         headers.reset(appended ? appended : head);
         if (!appended) {
-            return {{Error::Network, "libcurl could not build the request headers"}, {}};
+            return {{Error::Internal, "libcurl could not build the request headers"}, {}};
         }
     }
 
@@ -113,23 +191,60 @@ Result<HttpResponse> CurlHttpClient::send(const HttpRequest &request)
     curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, timeoutMs);
     curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, timeoutMs);
     curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(handle, CURLOPT_QUICK_EXIT, 1L);
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, onBody);
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &body);
     if (request.cancelled) {
         curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(handle, CURLOPT_XFERINFOFUNCTION, onProgress);
-        curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &request.cancelled);
+        curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &cancelCheck);
     }
 
-    const CURLcode code = curl_easy_perform(handle);
+    if (curl_multi_add_handle(multi.get(), handle) != CURLM_OK) {
+        return {{Error::Internal, "libcurl could not start the transfer"}, {}};
+    }
+    const Attachment attachment(multi.get(), handle);
+
+    // The one transfer runs until it finishes. Between polls the cancel is
+    // checked, so it lands within POLL_MS even while libcurl waits for DNS, a
+    // connection or the first byte; a poll returns early whenever there is
+    // data, or a timer of libcurl's own - the timeout's among them - is due.
+    CURLMcode multiCode = CURLM_OK;
+    for (;;) {
+        int running = 0;
+        multiCode = curl_multi_perform(multi.get(), &running);
+        if (multiCode != CURLM_OK || running == 0) {
+            break;
+        }
+        if (cancelCheck()) {
+            return stoppedBy(cancelCheck);
+        }
+        multiCode = curl_multi_poll(multi.get(), nullptr, 0, POLL_MS, nullptr);
+        if (multiCode != CURLM_OK) {
+            break;
+        }
+    }
+    // A multi handle that fails is libcurl's trouble, not the network's.
+    if (multiCode != CURLM_OK) {
+        return {{Error::Internal, curl_multi_strerror(multiCode)}, {}};
+    }
+    const std::optional<CURLcode> finished = transferResult(multi.get());
+    if (!finished) {
+        return {{Error::Internal, "libcurl lost track of the transfer"}, {}};
+    }
+
+    const CURLcode code = *finished;
     if (code == CURLE_ABORTED_BY_CALLBACK) {
-        return {{Error::Cancelled, "Cancelled"}, {}};
+        return stoppedBy(cancelCheck);
     }
     if (code == CURLE_OPERATION_TIMEDOUT) {
         return {{Error::Timeout, curl_easy_strerror(code)}, {}};
     }
     if (body.tooLarge) {
         return {{Error::Network, "Response too large"}, {}};
+    }
+    if (body.outOfMemory || code == CURLE_OUT_OF_MEMORY) {
+        return {{Error::Internal, "Out of memory"}, {}};
     }
     if (code != CURLE_OK) {
         return {{Error::Network, curl_easy_strerror(code)}, {}};
