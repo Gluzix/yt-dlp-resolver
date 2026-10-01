@@ -234,7 +234,10 @@ and the deadline clamped to 0–24 h. Then `max == 0` or a blank query is
 ladder exists for the *player*, where clients differ in what YouTube lets
 them play. Search needs neither the player JavaScript nor a PO Token, and
 on 2026-10-01 YouTube answered it bare, so no watch page is fetched; if a
-resolve has cached visitor data, it goes along.
+resolve has cached visitor data, it goes along on every page. With none
+cached, page 2 and later carry the visitor data YouTube named on the page
+before (`responseContext.visitorData`), as yt-dlp does — checked by the
+same rule as the watch page's (`src/visitor_data.h`), and never cached.
 
 **Step 2 — the request.** `searchRequest()` hands two fields to
 `innertube::apiRequest()`, the builder every non-player InnerTube POST goes
@@ -259,14 +262,23 @@ first page's `sectionListRenderer.contents[]`, or a further page's
 `appendContinuationItemsAction.continuationItems[]`. In it sit item
 sections, which hold the results, and *beside* them the continuation, whose
 token fetches the next page (`continuationOf()` reads it; it knows the
-three shapes YouTube uses, so playlists in M4 can reuse it). Inside an item
-section only a `videoRenderer` counts: the videos-only filter still puts an
-artist's *channel* first, which is exactly why the bot hand-picks today.
-From each video: the id (checked with `isVideoId()`), the title and channel
-through `textOf()` (InnerTube writes a label as `simpleText`, as `runs` to
-join, or as a view model's `content`), the length through
-`durationSeconds()` ("4:36" → 276), live from a badge or an overlay,
-upcoming from `upcomingEventData`.
+three shapes YouTube uses, so playlists in M4 can reuse it). Like yt-dlp,
+the reader also accepts a continuation inside an item section when there is
+none beside. Inside an item section only a `videoRenderer` counts: the
+videos-only filter still puts an artist's *channel* first, which is exactly
+why the bot hand-picks today. From each video: the id (checked with
+`isVideoId()`), the title and channel through `textOf()` (InnerTube writes a
+label as `simpleText`, as `runs` to join, or as a view model's `content`),
+the length through `durationSeconds()` ("4:36" → 276) from `lengthText` or,
+failing that, the time status over the thumbnail, live from a badge or an
+overlay, upcoming from `upcomingEventData`.
+
+One rule guards against YouTube moving under the reader: a *first* page on
+which `estimatedResults` is above 0 but no `videoRenderer` can be read is
+`Parse`, not an empty list. Were YouTube to move search results into the
+`lockupViewModel` it already uses for playlists, every search would
+otherwise come back "nothing found" — an answer the bot shows the user —
+instead of a failure that sends it to yt-dlp.
 
 **Step 4 — the loop.** Append results until `max`; while short of it, the
 page gave a continuation, the page brought at least one video and fewer
@@ -278,10 +290,11 @@ empty list; on a later page, it is that failure *with the videos read so
 far*: `Result` carries both, and a caller cancelled on page three can still
 use the first two.
 
-*Questions: if YouTube moved search results to the `lockupViewModel` it
-already uses for playlists, what would `search()` return — an error, or
-an Ok with no videos? Which test layer would notice? Why does a further
-page repeat the query when the token alone identifies the search?*
+*Questions: why is "Ok, but empty" a more dangerous answer than an error
+when YouTube changes something, and why does the `estimatedResults` rule
+apply only to a first page? Which test layer would notice the change itself
+(`ytres_live_tests` now searches once)? Why does a further page repeat the
+query when the token alone identifies the search?*
 
 ## 5. Errors, and what the bot should do with them
 
@@ -418,14 +431,16 @@ carried. The recorded responses in `tests/fixtures/` were captured live with
 before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
-URL, headers, body — not only what it parses. 87 cases at M2, 119 with
+URL, headers, body — not only what it parses. 87 cases at M2, 125 with
 M3's `search_test.cpp` (not yet compiled); `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish
 title, a 10-hour video, a 24/7 live stream, a "- Topic" upload, an
-age-restricted one, a deleted id) and checks each expected code, and it
-measures cancellation latency against a non-routable address. Not in
+age-restricted one, a deleted id) and checks each expected code, it
+measures cancellation latency against a non-routable address, and since M3
+it searches once, which is what would notice YouTube reshaping its search
+answer. Not in
 `ctest`, because YouTube's answers change and the network is not a test
 fixture.
 
