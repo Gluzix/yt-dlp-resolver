@@ -154,7 +154,9 @@ videos out by itself; the check is for the day it does not.
 
 - `title`: `metadata.playlistMetadataRenderer.title`; else
   `textOf(header.playlistHeaderRenderer, "title")`; else
-  `header.pageHeaderRenderer.pageTitle`.
+  `header.pageHeaderRenderer.pageTitle`. The first and the last are plain
+  JSON strings, so they are read with `readString`; `textOf` answers a bare
+  string with nothing.
 - `totalCount`: the digits of the first stat in
   `sidebar.playlistSidebarRenderer.items[].playlistSidebarPrimaryInfoRenderer.stats[0]`
   (`textOf` gives "447 episodes", "7 videos", "6,000 videos"; keep the
@@ -167,6 +169,21 @@ playlist does not exist." That is `Unavailable` with the alert's text
 (`textOf(alertRenderer, "text")`). Alerts of other types beside real
 contents (YouTube uses one to say unavailable videos are hidden) are not
 failures.
+
+**A layout the reader does not know** must not pass for an empty playlist,
+for the reason M3's search reader fails a first page that counts results it
+cannot read: the bot falls back to yt-dlp on a failure, never on an empty
+list. A first page that has `contents`, yields no entry in either layout,
+and whose count is above 0 is `Parse` ("The playlist counts videos but holds
+none the library can read"). A count of 0 with no entries is an empty
+playlist and Ok. A continuation page with nothing readable is the end of the
+list, not a failure.
+
+**Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
+does for every feed: `PlaylistPage` carries the page's
+`responseContext.visitorData` when it passes `visitorDataRefusal()`
+(`src/visitor_data.h`), and the loop sends it with the next page only when
+the cache holds nothing. It is never written into the cache.
 
 ## The loop (`Resolver::Impl::playlist` in `src/resolver.cpp`)
 
@@ -211,7 +228,15 @@ either layout; through the Resolver and the fake — `max` 2 on
 5 sends the continuation and returns five of the six; a repeated token stops
 the loop; a second page that fails returns the failure with the first
 page's entries, title and count; `playlist_missing.json` is `Unavailable`;
-`max` 0 and a mix id are `BadInput` with nothing sent.
+`max` 0 and a mix id are `BadInput` with nothing sent; a first page with a
+count above 0 and only an unknown item kind is `Parse`, with a count of 0 it
+is Ok and empty; with an empty cache the second page carries the first
+page's visitor data, with a cached value the cached one goes on both.
+
+One live case joins `tests/live_test.cpp` (never run by `ctest`):
+`PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4` with `max` 150 is Ok, has a title, a
+count above 150, exactly 150 entries with valid ids and titles, and took two
+requests. It is what notices YouTube changing the playlist layout again.
 
 ## Documentation
 
