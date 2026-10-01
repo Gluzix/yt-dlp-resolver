@@ -30,6 +30,7 @@ add_library(ytres STATIC
     src/format_pick.cpp
     src/curl_http_client.h src/curl_http_client.cpp
     src/innertube.h src/innertube.cpp
+    src/continuation.h src/continuation.cpp
     src/watch_page.h src/watch_page.cpp
     src/visitor_cache.h src/visitor_cache.cpp
     src/resolver.cpp
