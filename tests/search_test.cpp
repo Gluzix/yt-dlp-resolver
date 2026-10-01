@@ -80,14 +80,17 @@ std::vector<std::string> idsOf(const std::vector<ytres::SearchResult> &results)
 }
 
 // Hand-made pages, in the shapes the fixtures have: a first page around the
-// items of its section list, a further page around its appended items, an
-// item section around its contents, a continuation, and a videoRenderer
-// with a title, a channel, a length and whatever extra adds (from a comma).
+// items of its section list, with YouTube's estimatedResults when given, a
+// further page around its appended items, an item section around its
+// contents, a continuation, and a videoRenderer with a title, a channel, a
+// length and whatever extra adds (from a comma).
 
-std::string firstPage(const std::string &items)
+std::string firstPage(const std::string &items, const std::string &estimatedResults = {})
 {
-    return R"({"contents":{"twoColumnSearchResultsRenderer":{"primaryContents":{"sectionListRenderer":{"contents":[)" + items
-         + "]}}}}}";
+    const std::string count =
+        estimatedResults.empty() ? std::string{} : R"("estimatedResults":")" + estimatedResults + R"(",)";
+    return "{" + count + R"("contents":{"twoColumnSearchResultsRenderer":{"primaryContents":{"sectionListRenderer":{"contents":[)"
+         + items + "]}}}}}";
 }
 
 std::string furtherPage(const std::string &items)
@@ -397,6 +400,34 @@ TEST_CASE("whatever is not a video with a valid id is read past, in any section,
     CHECK(page.value.results[1].title.empty());
     CHECK(page.value.results[1].author.empty());
     CHECK(page.value.next.token == "FIRST");
+}
+
+TEST_CASE("a first page that counts results but holds no video the library can read is Parse")
+{
+    // A search as it would look had YouTube moved its results into a view
+    // model the reader does not know, as it has for playlists.
+    const std::string unknownItem = R"({"lockupViewModel":{}})";
+    const auto moved = parseSearchResponse(firstPage(section(unknownItem), "12"));
+    CHECK(moved.status.code == Error::Parse);
+    CHECK(moved.status.message == "The search response counts results but holds no video the library can read");
+    CHECK(moved.value.results.empty());
+
+    // Nothing counted and nothing there is an empty search, as recorded.
+    CHECK(parseSearchResponse(firstPage(section(unknownItem), "0")));
+    CHECK(parseSearchResponse(firstPage(section(unknownItem))));
+    CHECK(parseSearchResponse(readFixture("search_empty.json")));
+
+    // A further page with nothing readable is the end of the results, count or not.
+    const auto further = parseSearchResponse(
+        R"({"estimatedResults":"12","onResponseReceivedCommands":[{"appendContinuationItemsAction":)"
+        R"({"continuationItems":[{"itemSectionRenderer":{"contents":[{"lockupViewModel":{}}]}}]}}]})");
+    REQUIRE(further);
+    CHECK(further.value.results.empty());
+
+    // Through the Resolver: a failure the caller falls back on, not "nothing found".
+    TestResolver test;
+    test.http->apiBodies["search"] = {firstPage(section(unknownItem), "12")};
+    CHECK(test.resolver.search(artist(), 5).status.code == Error::Parse);
 }
 
 TEST_CASE("an answer that is no search response is a Parse failure")
