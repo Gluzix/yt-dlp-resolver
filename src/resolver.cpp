@@ -304,8 +304,12 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
         return {{Error::Internal, "The client table has no web client"}, {}};
     }
     // No watch page for a search: YouTube answered it bare on 2026-10-01.
-    // Whatever a resolve left in the cache goes along, fresh or stale.
-    const std::string visitorData = visitorCache.get(Clock::now()).value;
+    // Whatever a resolve left in the cache goes along, fresh or stale, on
+    // every page. With nothing cached, a later page carries the visitor data
+    // the page before it named, as yt-dlp sends it; that stays out of the
+    // cache, which holds what a watch page gave.
+    const std::string cached = visitorCache.get(Clock::now()).value;
+    std::string visitorData = cached;
     const std::string text(query);
     const Call call{std::string{}, request, deadline.value};
 
@@ -331,6 +335,9 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
             break;
         }
         next = std::move(page.value.next);
+        if (cached.empty() && !page.value.visitorData.empty()) {
+            visitorData = std::move(page.value.visitorData);
+        }
     }
     return {{}, std::move(found)};
 }

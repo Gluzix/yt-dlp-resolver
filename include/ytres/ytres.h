@@ -202,7 +202,9 @@ public:
     // and the caller should fall back rather than report nothing found.
     // Asked as the web client whatever Options::clients says: that list is
     // the player's ladder. Cached visitor data is sent when there is some,
-    // but none is fetched for a search.
+    // but none is fetched for a search; with none cached, a later page
+    // carries the visitor data YouTube named on the page before it, as
+    // yt-dlp sends it, and that value is not cached.
     // When a later page fails, the result carries that failure and the
     // videos read so far.
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request = {});
