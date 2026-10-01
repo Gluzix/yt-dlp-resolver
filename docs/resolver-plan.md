@@ -171,7 +171,19 @@ struct VideoInfo {
     std::optional<Format> bestAudio() const;
 };
 
-struct SearchResult  { std::string videoId, title, author; std::int64_t durationSeconds{0}; };
+// As built in M3.
+struct SearchResult {
+    std::string videoId;
+    std::string title;                // UTF-8
+    std::string author;               // the channel's name
+    std::int64_t durationSeconds{0};  // 0 when YouTube gives none: live, upcoming
+    bool isLive{false};               // streaming now; resolve() answers it with NoFormats
+    bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
+};
+
+// https://www.youtube.com/watch?v=<videoId>, built in M3.
+std::string watchUrl(std::string_view videoId);
+
 struct PlaylistEntry { std::string videoId, title;         std::int64_t durationSeconds{0}; };
 
 struct Playlist {
@@ -200,6 +212,9 @@ public:
     ~Resolver();
 
     Result<VideoInfo>                 resolve(std::string_view urlOrId, const Request& = {});
+    // As built in M3: up to max videos, best match first, as the web client
+    // with the videos-only filter, following continuations up to ten pages.
+    // A later page's failure comes back with the videos read before it.
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request& = {});
     Result<Playlist>                  playlist(std::string_view urlOrId, std::size_t max, const Request& = {});
 };
@@ -330,7 +345,7 @@ than any unit test. YouTube breaks this library; you mostly do not.
 | M0 | Skeleton and seams | CMake, public header, `CurlHttpClient`, JSON, CLI harness with `--record`, test target. No YouTube yet. |
 | M1 | Resolve via `visionos` | Player request, playability mapping, format model, `bestAudio()`, expiry. The usable MVP. |
 | M2 | Hardening | Client ladder, full error taxonomy, cancellation through curl, timeouts, thread safety, differential harness. |
-| M3 | Search | Videos-only filter; one request, no hand-picking. |
+| M3 | Search | Videos-only filter; one request, no hand-picking. Written 2026-10-01 without a build; see `docs/m3-plan.md`, "Before this is done". |
 | M4 | Playlists | Browse plus continuations, bounded by `max`. |
 | M5 | JS tier *(deferred)* | Only if a client that needs `base.js` ever becomes necessary. Currently buys nothing. |
 | M6 | Bot integration | Separate plan. `IMediaResolver` seam, native first, yt-dlp fallback. |
