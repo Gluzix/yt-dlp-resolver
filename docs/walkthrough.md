@@ -529,7 +529,7 @@ before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
-M3's `search_test.cpp` and 160 with M4's `playlist_test.cpp` (neither yet
+M3's `search_test.cpp` and 163 with M4's `playlist_test.cpp` (neither yet
 compiled); `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against

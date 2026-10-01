@@ -181,7 +181,11 @@ list. A first page that has `contents`, yields no entry in either layout,
 and whose count is above 0 is `Parse` ("The playlist counts videos but holds
 none the library can read"). A count of 0 with no entries is an empty
 playlist and Ok. A continuation page with nothing readable is the end of the
-list, not a failure.
+list, not a failure. One exception, recorded in the M4 review: an
+`appendContinuationItemsAction` with no `continuationItems` is `Parse`.
+Without the array the reader cannot tell the answer from a first page, finds
+no section list in the stub `contents`, and fails it, where yt-dlp would take
+it for the end of the list.
 
 **Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
 does for every feed: `PlaylistPage` carries the page's

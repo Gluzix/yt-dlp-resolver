@@ -93,7 +93,9 @@ a search cancelled on page three still has the first two.
 
 `playlist(urlOrId, max, request)` returns the first `max` videos of a public
 playlist in its order, with its title and the count YouTube gives for it
-(`totalCount`, 0 when unknown). It takes a `youtube.com` `/playlist` or
+(`totalCount`, 0 when unknown). The count is read from YouTube's English
+text ("447 episodes"), so with an `Options::language` other than `"en"` it
+may be wrong or 0. It takes a `youtube.com` `/playlist` or
 `/watch` link, or a `youtu.be` link, that carries `list=`, or a bare id
 starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL` or `PU`. Like a search it
 asks as the `web` client, sends the visitor data a resolve has cached and

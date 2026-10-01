@@ -246,6 +246,10 @@ public:
     // YouTube counts videos but holds none the library can read is Parse,
     // not an empty playlist: YouTube has changed its answer, and the caller
     // should fall back rather than report the playlist empty.
+    // totalCount is read from YouTube's English text ("447 episodes"), so
+    // with an Options::language other than "en" it may be wrong or 0 - and
+    // at 0, a first page the library cannot read passes for an empty
+    // playlist instead of failing as Parse.
     // Asked as the web client whatever Options::clients says. Cached visitor
     // data is sent when there is some, but none is fetched for a playlist;
     // with none cached, a later page carries the visitor data YouTube named
