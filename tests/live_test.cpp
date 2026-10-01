@@ -18,9 +18,10 @@
 
 // Touches the network: resolves tests/corpus.txt against live YouTube, counts
 // the requests of a warm resolve, times a cancel through libcurl, walks the
-// client ladder for real and searches once. Built with the rest but never run
-// by ctest; README.md, "Live tests", says how to run it. YouTube changes under
-// these checks, so a failure here says "look", not always "the library broke".
+// client ladder for real, searches once and lists a playlist over two pages.
+// Built with the rest but never run by ctest; README.md, "Live tests", says
+// how to run it. YouTube changes under these checks, so a failure here says
+// "look", not always "the library broke".
 
 using ytres::Error;
 using namespace std::chrono_literals;
@@ -217,6 +218,32 @@ TEST_CASE("a search finds videos in one request, each with an id, a title and a 
         CHECK(looksLikeVideoId(video.videoId));
         CHECK_FALSE(video.title.empty());
         CHECK_FALSE(video.author.empty());
+    }
+}
+
+TEST_CASE("a playlist of 447 videos lists its first 150 in two requests, each with an id and a title")
+{
+    // What notices YouTube changing the playlist layout again, as it did
+    // before 2026-10-01: the offline tests replay what it was that day.
+    const auto http = std::make_shared<CountingHttpClient>();
+    ytres::Resolver::Options options;
+    options.http = http;
+    ytres::Resolver resolver(options);
+    const Clock::time_point start = Clock::now();
+    const ytres::Result<ytres::Playlist> list = resolver.playlist("PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4", 150);
+    const std::string outcome = errorName(list.status.code); // a std::string, which doctest prints as text
+    MESSAGE("playlist: " << outcome << " in " << msSince(start) << " ms, " << http->count.load() << " requests, "
+                         << list.value.entries.size() << " of " << list.value.totalCount << " videos"
+                         << (list ? "" : " - " + list.status.message));
+    CHECK(outcome == "Ok");
+    CHECK(http->count.load() == 2); // no watch page, two pages of a hundred
+    CHECK_FALSE(list.value.title.empty());
+    CHECK(list.value.totalCount > 150);
+    CHECK(list.value.entries.size() == 150);
+    for (const ytres::PlaylistEntry &entry : list.value.entries) {
+        CAPTURE(entry.videoId);
+        CHECK(looksLikeVideoId(entry.videoId));
+        CHECK_FALSE(entry.title.empty());
     }
 }
 

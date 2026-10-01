@@ -99,15 +99,15 @@ inline std::int64_t readInt(const json &object, const char *key)
 
 // InnerTube writes a label three ways: {"simpleText": ...}, {"runs":
 // [{"text": ...}, ...]} to be joined, or a view model's {"content": ...}.
-// Empty when object has no such key or the value is none of the three.
-inline std::string textOf(const json &object, const char *key)
+// The text of label itself, which may stand alone in an array, as a
+// playlist's stats do; empty when it is none of the three.
+inline std::string labelText(const json &label)
 {
-    const json *label = child(object, key);
-    if (!label) {
+    if (!label.is_object()) {
         return {};
     }
-    std::string text = readString(*label, "simpleText");
-    const json *runs = childArray(*label, "runs");
+    std::string text = readString(label, "simpleText");
+    const json *runs = childArray(label, "runs");
     if (text.empty() && runs) {
         for (const json &run : *runs) {
             if (run.is_object()) {
@@ -115,7 +115,15 @@ inline std::string textOf(const json &object, const char *key)
             }
         }
     }
-    return text.empty() ? readString(*label, "content") : text;
+    return text.empty() ? readString(label, "content") : text;
+}
+
+// The text of the label object holds under key, read as labelText() reads
+// one. Empty when object has no such key or the value is none of the three.
+inline std::string textOf(const json &object, const char *key)
+{
+    const json *label = child(object, key);
+    return label ? labelText(*label) : std::string{};
 }
 
 // A duration as YouTube writes it under a thumbnail, m:ss or h:mm:ss -

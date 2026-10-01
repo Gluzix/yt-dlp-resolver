@@ -352,10 +352,11 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
 {"context": {...as above...}, "browseId": "VLPLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4"}
 ```
 
-- `browseId` is `VL` followed by the playlist id (`_reload_with_unavailable_videos`
-  and the tab extractor both build it that way). yt-dlp adds
-  `"params": "wgYCCAA="` only to make YouTube list unavailable videos too;
-  without it they are left out.
+- `browseId` is `VL` followed by the playlist id, as
+  `_reload_with_unavailable_videos` builds it (the tab extractor's own first
+  request is the web page or `navigation/resolve_url`; see below). yt-dlp
+  adds `"params": "wgYCCAA="` only to make YouTube list unavailable videos
+  too; without it they are left out.
 - Playlist ids, from yt-dlp's `_PLAYLIST_ID_RE`:
   `(?:(?:PL|LL|EC|UU|FL|RD|UL|TL|PU|OLAK5uy_)[0-9A-Za-z-_]{10,}|RDMM|WL|LL|LM)`.
   `RD...` are mixes generated per viewer, `WL`, `LL` and `LM` are a signed-in
@@ -370,6 +371,11 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
   there are more, a `continuationItemViewModel`. No `playlistVideoListRenderer`
   anywhere. yt-dlp handles both (`_extract_lockup_view_model`,
   `continuationItemViewModel` in `_extract_continuation`).
+- Read from the recorded fixtures on 2026-10-01: the item section that holds
+  the entries has the playlist id as its `targetId`, as has a further page's
+  `appendContinuationItemsAction`, and each `lockupViewModel`'s
+  `rendererContext.commandContext.onTap.innertubeCommand.watchEndpoint.playlistId`
+  is the playlist id too.
 - A `lockupViewModel` for a video: `contentType` is
   `LOCKUP_CONTENT_TYPE_VIDEO`, `contentId` is the video id, the title is at
   `metadata.lockupMetadataViewModel.title.content`, and the duration text
@@ -403,6 +409,39 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
 - Sizes: about 12 KB of JSON per entry. A full page of 100 is 1.25 MB before
   gzip, well under the HTTP client's 8 MB cap; 0.2 to 0.4 s.
 - The entries carry the same `&ip=` preview urls as search results.
+
+Read in the M4 review of yt-dlp's tab extractor (`_real_extract` and its
+helpers in `_tab.py`), not probed again:
+
+- **What yt-dlp does that the library deliberately does not.** For a
+  playlist link, yt-dlp first downloads the playlist's own page,
+  `https://www.youtube.com/playlist?list=<id>` (`_extract_data`,
+  `_extract_webpage`), and takes the first page's answer from its
+  `ytInitialData` and the request context from its ytcfg. Only
+  `--extractor-args youtubetab:skip=webpage`, or a page that yields no data,
+  makes it ask the API instead, in two requests: `navigation/resolve_url`
+  with the link, then `browse` with the endpoint that answers
+  (`_extract_tab_endpoint`). Either way, once the answer is a playlist
+  (`metadata.playlistMetadataRenderer` or `header.playlistHeaderRenderer`),
+  it asks `browse` again with `{"params": "wgYCCAA=", "browseId": "VL<id>"}`
+  (`_reload_with_unavailable_videos`, which
+  `--compat-options no-youtube-unavailable-videos` skips) and reads the
+  first page's entries from that answer, unavailable videos among them.
+  That reload is the one place yt-dlp builds `VL<id>` itself; the pages
+  after the first come from `browse` with the continuation alone
+  (`_entries`). The library fetches no page, resolves no url and makes no
+  reload: one `browse` request with `VL<id>` and no `params`, which YouTube
+  answered on 2026-10-01, leaving out the unavailable videos the bot drops
+  anyway. It sends the visitor data a resolve has cached, when there is
+  some.
+- **Alerts.** yt-dlp fails an answer that carries any alert of type
+  `error`, whatever else it holds, with the last such alert's text
+  (`_report_alerts` in `_base.py`). The library fails an answer with no
+  section list or no entries, with the first `ERROR` alert's text.
+- **Looping.** yt-dlp's `_entries` stops when a continuation token comes
+  round again ("Detected YouTube feed looping") and has no page limit;
+  `MAX_PLAYLIST_PAGES` (200) and the stop after three empty pages in a row
+  are the library's own.
 
 The fixtures `tests/fixtures/search_*.json` and `playlist_*.json` are these
 answers, scrubbed and cut down to a few entries each.

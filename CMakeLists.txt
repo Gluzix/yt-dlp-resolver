@@ -32,6 +32,7 @@ add_library(ytres STATIC
     src/innertube.h src/innertube.cpp
     src/continuation.h src/continuation.cpp
     src/search.h src/search.cpp
+    src/playlist.h src/playlist.cpp
     src/watch_page.h src/watch_page.cpp
     src/visitor_cache.h src/visitor_cache.cpp
     src/visitor_data.h

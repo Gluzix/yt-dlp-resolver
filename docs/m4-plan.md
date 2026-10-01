@@ -118,16 +118,29 @@ handles alongside it.
 **Where the entries are.**
 
 - First page: `contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[]`,
-  and in it the first `itemSectionRenderer`; its `contents[]` are
+  and in it an `itemSectionRenderer`, whose `contents[]` are
   - new layout: `lockupViewModel` items, followed by the page's
     `continuationItemViewModel` when there are more;
   - old layout: one `playlistVideoListRenderer`, whose own `contents[]` are
     `playlistVideoRenderer` items followed by a `continuationItemRenderer`.
+
+  Every page probed held one item section, with the playlist id as its
+  `targetId`. Settled in the M4 review, so that another populated section
+  YouTube might put ahead of it (a shelf of other videos) cannot pass for
+  the playlist, the reader takes, in this order: the
+  `playlistVideoListRenderer`'s `contents[]`, in whichever item section it
+  is; the item section whose `targetId` is the playlist id, which
+  `parsePlaylistResponse(body, playlistId)` takes as an optional second
+  argument and the Resolver passes for every page; the first item section
+  that holds a `lockupViewModel` or `playlistVideoRenderer`; else the first
+  item section, which the rule for a layout the reader does not know then
+  judges.
 - Continuation: `onResponseReceivedActions[].appendContinuationItemsAction.continuationItems[]`
   (also look under `onResponseReceivedEndpoints`), holding the same item
   kinds directly. A continuation answer also has a `contents` key, but it is
   a stub with no entries: when the answer has an `appendContinuationItemsAction`,
-  read that and nothing else.
+  read that and nothing else. The action carries the playlist id as its
+  `targetId` too; the reader does not ask for it.
 
 **Which continuation.** The one that is a sibling of the entries, in the same
 array. The `sectionListRenderer.contents[]` of a first page holds a second
@@ -154,7 +167,9 @@ videos out by itself; the check is for the day it does not.
 
 - `title`: `metadata.playlistMetadataRenderer.title`; else
   `textOf(header.playlistHeaderRenderer, "title")`; else
-  `header.pageHeaderRenderer.pageTitle`.
+  `header.pageHeaderRenderer.pageTitle`. The first and the last are plain
+  JSON strings, so they are read with `readString`; `textOf` answers a bare
+  string with nothing.
 - `totalCount`: the digits of the first stat in
   `sidebar.playlistSidebarRenderer.items[].playlistSidebarPrimaryInfoRenderer.stats[0]`
   (`textOf` gives "447 episodes", "7 videos", "6,000 videos"; keep the
@@ -166,17 +181,45 @@ videos out by itself; the check is for the day it does not.
 playlist does not exist." That is `Unavailable` with the alert's text
 (`textOf(alertRenderer, "text")`). Alerts of other types beside real
 contents (YouTube uses one to say unavailable videos are hidden) are not
-failures.
+failures. Settled in the M4 review: the ERROR alert is looked for in
+whatever renderer an alert holds, as yt-dlp does, and it also makes a first
+page `Unavailable` when the page has a section list but no entries, before
+the rule below and whatever the count says. yt-dlp fails any answer with an
+error alert; the library keeps an answer that has entries to show.
+
+**A layout the reader does not know** must not pass for an empty playlist,
+for the reason M3's search reader fails a first page that counts results it
+cannot read: the bot falls back to yt-dlp on a failure, never on an empty
+list. A first page that has `contents`, yields no entry in either layout,
+and whose count is above 0 is `Parse` ("The playlist counts videos but holds
+none the library can read"). A count of 0 with no entries is an empty
+playlist and Ok. A continuation page with nothing readable is the end of the
+list, not a failure. One exception, recorded in the M4 review: an
+`appendContinuationItemsAction` with no `continuationItems` is `Parse`.
+Without the array the reader cannot tell the answer from a first page, finds
+no section list in the stub `contents`, and fails it, where yt-dlp would take
+it for the end of the list.
+
+**Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
+does for every feed: `PlaylistPage` carries the page's
+`responseContext.visitorData` when it passes `visitorDataRefusal()`
+(`src/visitor_data.h`), and the loop sends it with the next page only when
+the cache holds nothing. It is never written into the cache.
 
 ## The loop (`Resolver::Impl::playlist` in `src/resolver.cpp`)
 
 The same shape as `Impl::search()`: the shared opening, `max == 0` is
 `BadInput`, `parsePlaylistId()`, the first page, then continuations while
 fewer than `max` entries are held and the page gave a continuation. Two
-guards against a feed that loops, both from yt-dlp's `_entries`: stop when a
-token repeats, and stop after `MAX_PLAYLIST_PAGES` (200). Truncate to `max`
-at the end. Title and count come from the first page; a failure on a later
-page returns that failure with the playlist as read so far.
+guards against a feed that loops: stop when a token repeats, as yt-dlp's
+`_entries` does, and stop after `MAX_PLAYLIST_PAGES` (200), the library's
+own, with a warning, since a channel's uploads (`UU...`) can run longer. A
+page that brings no entry does not end the list, since it may hold nothing
+but videos nobody may watch; `MAX_EMPTY_PLAYLIST_PAGES` (3) such pages in a
+row do, with a warning, so that a broken feed cannot cost two hundred
+requests. Truncate to `max` at the end. Title and count come from the first
+page; a failure on a later page returns that failure with the playlist as
+read so far.
 
 ## CLI
 
@@ -211,7 +254,15 @@ either layout; through the Resolver and the fake — `max` 2 on
 5 sends the continuation and returns five of the six; a repeated token stops
 the loop; a second page that fails returns the failure with the first
 page's entries, title and count; `playlist_missing.json` is `Unavailable`;
-`max` 0 and a mix id are `BadInput` with nothing sent.
+`max` 0 and a mix id are `BadInput` with nothing sent; a first page with a
+count above 0 and only an unknown item kind is `Parse`, with a count of 0 it
+is Ok and empty; with an empty cache the second page carries the first
+page's visitor data, with a cached value the cached one goes on both.
+
+One live case joins `tests/live_test.cpp` (never run by `ctest`):
+`PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4` with `max` 150 is Ok, has a title, a
+count above 150, exactly 150 entries with valid ids and titles, and took two
+requests. It is what notices YouTube changing the playlist layout again.
 
 ## Documentation
 

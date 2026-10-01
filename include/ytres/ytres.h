@@ -10,9 +10,9 @@
 #include <string_view>
 #include <vector>
 
-// Resolves a YouTube video to direct stream URLs, and searches YouTube for
-// videos, by asking YouTube's InnerTube API what yt-dlp asks it, without
-// YouTube's player JavaScript.
+// Resolves a YouTube video to direct stream URLs, searches YouTube for
+// videos and lists public playlists, by asking YouTube's InnerTube API what
+// yt-dlp asks it, without YouTube's player JavaScript.
 // =======================================================
 // Rules:
 // - No exception crosses this header: every call returns a Result whose
@@ -114,15 +114,33 @@ struct SearchResult
     bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
 };
 
+// One video of a playlist: enough to list it, not to play it. Resolve its
+// videoId, or watchUrl(videoId), for the streams.
+struct PlaylistEntry
+{
+    std::string videoId;
+    std::string title;                // UTF-8
+    std::int64_t durationSeconds{0};  // 0 when YouTube gives none
+};
+
+// The first videos of a public playlist, and what YouTube says about it.
+struct Playlist
+{
+    std::string playlistId;
+    std::string title;                  // UTF-8; empty when YouTube gave none
+    std::size_t totalCount{0};          // the videos YouTube says it has; 0 = unknown
+    std::vector<PlaylistEntry> entries; // in playlist order, at most max
+};
+
 // https://www.youtube.com/watch?v=<videoId>: the page of a search result or
 // a playlist entry, and a valid resolve() target.
 std::string watchUrl(std::string_view videoId);
 
 // Per-call cancellation and deadline. cancelled may be empty. deadline bounds
 // the whole call - the watch page, every client of the ladder and the bot
-// check's second try alike, or every page of a search: each request gets the
-// smaller of Options::requestTimeout and what is left of it, and none is
-// sent once it has run out.
+// check's second try alike, or every page of a search or a playlist: each
+// request gets the smaller of Options::requestTimeout and what is left of
+// it, and none is sent once it has run out.
 struct Request
 {
     std::function<bool()> cancelled;
@@ -148,7 +166,8 @@ public:
         // PlayerScript - passes the video on to the next; one about the
         // video, the network, the call or the library ends the resolve there.
         // Empty, or an id the library does not know, is BadInput. Only
-        // resolve() climbs it; search() always asks as the web client.
+        // resolve() climbs it; search() and playlist() always ask as the
+        // web client.
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
@@ -208,6 +227,37 @@ public:
     // When a later page fails, the result carries that failure and the
     // videos read so far.
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request = {});
+
+    // The first max videos of a public playlist, in its order, with its
+    // title and how many videos YouTube says it has. Accepts a youtube.com
+    // /playlist or /watch link, or a youtu.be link, that carries list=, or a
+    // bare playlist id. One request per hundred videos, and no more requests
+    // than max needs: a 6000-video playlist asked for its first 50 costs one.
+    // Videos YouTube hides as unavailable are not listed, nor is one titled
+    // [Private video] or [Deleted video] should it list one, so entries may
+    // be fewer than totalCount says. A list longer than 20,000 videos - a
+    // big channel's uploads (UU...) - is cut there, with a warning in the
+    // log, and comes back Ok; so does one whose pages bring no video three
+    // times in a row.
+    // A playlist that does not exist is Unavailable, with YouTube's words,
+    // as is any whose answer is an error alert instead of a playlist. A mix
+    // (RD...), Watch Later, Liked videos and the like are BadInput: they
+    // belong to a signed-in viewer. max of 0 is BadInput. A first page where
+    // YouTube counts videos but holds none the library can read is Parse,
+    // not an empty playlist: YouTube has changed its answer, and the caller
+    // should fall back rather than report the playlist empty.
+    // totalCount is read from YouTube's English text ("447 episodes"), so
+    // with an Options::language other than "en" it may be wrong or 0 - and
+    // at 0, a first page the library cannot read passes for an empty
+    // playlist instead of failing as Parse.
+    // Asked as the web client whatever Options::clients says. Cached visitor
+    // data is sent when there is some, but none is fetched for a playlist;
+    // with none cached, a later page carries the visitor data YouTube named
+    // on the page before it, as yt-dlp sends it, and that value is not cached.
+    // When a later page fails, the result carries that failure and the
+    // playlist as read so far: its title, its count and the entries before
+    // the page that failed.
+    Result<Playlist> playlist(std::string_view urlOrId, std::size_t max, const Request &request = {});
 
 private:
     struct Impl;
