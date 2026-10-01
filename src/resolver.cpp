@@ -1,14 +1,19 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
+#include "continuation.h"
 #include "innertube.h"
+#include "search.h"
 #include "url_parse.h"
 #include "visitor_cache.h"
 #include "watch_page.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <exception>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -19,6 +24,10 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 const size_t ERROR_EXCERPT_BYTES = 200;
+
+// A search reads no more pages than this, whatever max asks for: about two
+// hundred videos, and a stop for a feed that would hand out pages forever.
+const int MAX_SEARCH_PAGES = 10;
 
 std::int64_t nowUnix()
 {
@@ -93,14 +102,14 @@ int weight(Error error)
 // A Resolver must stay safe to call from several threads at once: the bot
 // resolves the next song while one plays. options and http are never
 // written after the constructor, HttpClient::send() is safe to call
-// concurrently, and the one thing resolves share, the visitor data, sits in
-// a VisitorCache that locks for itself and never across a request.
+// concurrently, and the one thing calls share, the visitor data, sits in a
+// VisitorCache that locks for itself and never across a request.
 struct Resolver::Impl
 {
-    // What one resolve carries into each of its requests.
+    // What one call carries into each of its requests.
     struct Call
     {
-        std::string videoId;
+        std::string videoId; // empty for a search, which is about no one video
         const Request &request;
         Clock::time_point deadline;
     };
@@ -110,9 +119,14 @@ struct Resolver::Impl
     VisitorCache visitorCache;
 
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request);
+    Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request);
+    Result<Clock::time_point> callDeadline(const Request &request) const;
     Result<std::string> visitorDataToSend(const innertube::ClientDef &client, const Call &call);
     Result<std::string> fetchVisitorData(const innertube::ClientDef &client, const Call &call);
     Result<VideoInfo> askPlayer(const innertube::ClientDef &client, const std::string &visitorData, const Call &call) const;
+    Result<innertube::SearchPage> askSearch(const innertube::ClientDef &client, const std::string &query,
+                                            const std::string &visitorData, const innertube::Continuation &continuation,
+                                            const Call &call) const;
     Result<HttpResponse> send(HttpRequest httpRequest, const Call &call) const;
 
     void log(LogLevel level, std::string_view text) const
@@ -156,7 +170,24 @@ Result<VideoInfo> Resolver::resolve(std::string_view urlOrId, const Request &req
     }
 }
 
-Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request)
+Result<std::vector<SearchResult>> Resolver::search(std::string_view query, std::size_t max, const Request &request)
+{
+    // The same net as resolve()'s, for the same reasons.
+    try {
+        if (!impl) {
+            return {{Error::BadInput, "This Resolver has been moved from"}, {}};
+        }
+        return impl->search(query, max, request);
+    } catch (const std::exception &e) {
+        return {{Error::Internal, std::string("Unexpected failure: ") + e.what()}, {}};
+    } catch (...) {
+        return {{Error::Internal, "Unexpected failure"}, {}};
+    }
+}
+
+// The opening every call shares: a request timeout that can be met, and the
+// call's deadline as a point in time.
+Result<Clock::time_point> Resolver::Impl::callDeadline(const Request &request) const
 {
     // Every request would fail as a Timeout, which reads as the network's
     // fault; the fault is the caller's.
@@ -166,9 +197,16 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
     // steady_clock counts nanoseconds in 64 bits, so an extreme deadline
     // wraps around: milliseconds::max() as "no deadline" into the past, a
     // hugely negative one into no deadline at all.
-    const Clock::time_point deadline =
-        Clock::now() + std::clamp<std::chrono::milliseconds>(request.deadline, std::chrono::milliseconds::zero(),
-                                                              std::chrono::hours(24));
+    return {{}, Clock::now() + std::clamp<std::chrono::milliseconds>(request.deadline, std::chrono::milliseconds::zero(),
+                                                                      std::chrono::hours(24))};
+}
+
+Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Request &request)
+{
+    const Result<Clock::time_point> deadline = callDeadline(request);
+    if (!deadline) {
+        return {deadline.status, {}};
+    }
 
     const Result<std::string> videoId = parseVideoId(urlOrId);
     if (!videoId) {
@@ -186,7 +224,7 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
     if (ladder.empty()) {
         return {{Error::BadInput, "No InnerTube client to ask"}, {}};
     }
-    const Call call{videoId.value, request, deadline};
+    const Call call{videoId.value, request, deadline.value};
 
     Result<std::string> visitorData = visitorDataToSend(*ladder.front(), call);
     if (!visitorData) {
@@ -245,6 +283,63 @@ Result<VideoInfo> Resolver::Impl::resolve(std::string_view urlOrId, const Reques
         }
     }
     return {{reported, std::move(answers)}, {}};
+}
+
+Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query, std::size_t max, const Request &request)
+{
+    const Result<Clock::time_point> deadline = callDeadline(request);
+    if (!deadline) {
+        return {deadline.status, {}};
+    }
+    if (max == 0) {
+        return {{Error::BadInput, "A search must ask for at least one video"}, {}};
+    }
+    if (query.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+        return {{Error::BadInput, "The search query is empty"}, {}};
+    }
+    // yt-dlp searches as the web client whatever it plays with, and so does
+    // the library: Options::clients is the player's ladder.
+    const innertube::ClientDef *web = innertube::findClient(ClientId::Web);
+    if (!web) {
+        return {{Error::Internal, "The client table has no web client"}, {}};
+    }
+    // No watch page for a search: YouTube answered it bare on 2026-10-01.
+    // Whatever a resolve left in the cache goes along, fresh or stale, on
+    // every page. With nothing cached, a later page carries the visitor data
+    // the page before it named, as yt-dlp sends it; that stays out of the
+    // cache, which holds what a watch page gave.
+    const std::string cached = visitorCache.get(Clock::now()).value;
+    std::string visitorData = cached;
+    const std::string text(query);
+    const Call call{std::string{}, request, deadline.value};
+
+    std::vector<SearchResult> found;
+    innertube::Continuation next;
+    for (int pageNumber = 1;; ++pageNumber) {
+        Result<innertube::SearchPage> page = askSearch(*web, text, visitorData, next, call);
+        // A later page's failure keeps what the pages before it brought:
+        // a caller cancelled on page three can still use the first two.
+        if (!page) {
+            return {page.status, std::move(found)};
+        }
+        std::vector<SearchResult> &results = page.value.results;
+        log(LogLevel::Debug, "search page " + std::to_string(pageNumber) + ": " + std::to_string(results.size()) + " videos");
+        for (SearchResult &result : results) {
+            if (found.size() >= max) {
+                break;
+            }
+            found.push_back(std::move(result));
+        }
+        // A page that brought no videos promises none on the next.
+        if (found.size() >= max || page.value.next.token.empty() || results.empty() || pageNumber >= MAX_SEARCH_PAGES) {
+            break;
+        }
+        next = std::move(page.value.next);
+        if (cached.empty() && !page.value.visitorData.empty()) {
+            visitorData = std::move(page.value.visitorData);
+        }
+    }
+    return {{}, std::move(found)};
 }
 
 // The visitor data for a player request: the cached value while it is fresh,
@@ -315,7 +410,26 @@ Result<VideoInfo> Resolver::Impl::askPlayer(const innertube::ClientDef &client, 
     return info;
 }
 
-// Sends one request within what is left of the resolve's deadline.
+// One page of a search: the first when continuation has no token, else the
+// one it leads to.
+Result<innertube::SearchPage> Resolver::Impl::askSearch(const innertube::ClientDef &client, const std::string &query,
+                                                        const std::string &visitorData,
+                                                        const innertube::Continuation &continuation, const Call &call) const
+{
+    const Result<HttpResponse> response =
+        send(innertube::searchRequest(client, query, options.language, visitorData, continuation), call);
+    if (!response) {
+        return {response.status, {}};
+    }
+    // As for the player: a redirect CurlHttpClient did not follow, or
+    // whatever another client lets through.
+    if (response.value.status < 200 || response.value.status >= 300) {
+        return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
+    }
+    return innertube::parseSearchResponse(response.value.body);
+}
+
+// Sends one request within what is left of the call's deadline.
 Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &call) const
 {
     if (call.request.cancelled && call.request.cancelled()) {
@@ -323,7 +437,7 @@ Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &c
     }
     const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(call.deadline - Clock::now());
     if (timeLeft.count() <= 0) {
-        return {{Error::Timeout, "The resolve ran out of time"}, {}};
+        return {{Error::Timeout, "The call ran out of time"}, {}};
     }
     httpRequest.timeout = std::min(options.requestTimeout, timeLeft);
     httpRequest.cancelled = call.request.cancelled;

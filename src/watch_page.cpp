@@ -1,6 +1,7 @@
 #include "watch_page.h"
 
 #include "url_parse.h"
+#include "visitor_data.h"
 
 #include <nlohmann/json.hpp>
 
@@ -11,8 +12,6 @@ namespace ytres::watchpage {
 namespace {
 
 using nlohmann::json;
-
-const size_t MAX_VISITOR_DATA = 4096;
 
 // One past the brace that closes the JSON object opening at text[open];
 // npos if it never closes. Braces inside strings do not count.
@@ -46,29 +45,15 @@ const json *member(const json &object, const char *key)
     return it != object.end() ? &*it : nullptr;
 }
 
-// Why value may not go out as a header; empty when it may. Only what base64
-// and percent encoding use gets through: a CR or LF in a doctored page must
-// never split the request. YouTube's is 558 characters today.
+// Why value may not go out as a header; empty when it may. The rule is
+// visitor_data.h's, shared with search; a value that is no string at all
+// is the page's own way to fail it.
 std::string headerRefusal(const json &value)
 {
     if (!value.is_string()) {
         return "not a string";
     }
-    const std::string &text = value.get_ref<const std::string &>();
-    if (text.empty()) {
-        return "empty";
-    }
-    if (text.size() > MAX_VISITOR_DATA) {
-        return std::to_string(text.size()) + " characters, over " + std::to_string(MAX_VISITOR_DATA);
-    }
-    for (char c : text) {
-        const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-                             || c == '%' || c == '_' || c == '=' || c == '+' || c == '/' || c == '-';
-        if (!allowed) {
-            return "a character outside [A-Za-z0-9%_=+/-]";
-        }
-    }
-    return {};
+    return visitorDataRefusal(value.get_ref<const std::string &>());
 }
 
 // The config's INNERTUBE_CONTEXT.client.visitorData as it stands; null when

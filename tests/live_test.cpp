@@ -17,10 +17,10 @@
 #include <vector>
 
 // Touches the network: resolves tests/corpus.txt against live YouTube, counts
-// the requests of a warm resolve, times a cancel through libcurl and walks
-// the client ladder for real. Built with the rest but never run by ctest;
-// README.md, "Live tests", says how to run it. YouTube changes under these
-// checks, so a failure here says "look", not always "the library broke".
+// the requests of a warm resolve, times a cancel through libcurl, walks the
+// client ladder for real and searches once. Built with the rest but never run
+// by ctest; README.md, "Live tests", says how to run it. YouTube changes under
+// these checks, so a failure here says "look", not always "the library broke".
 
 using ytres::Error;
 using namespace std::chrono_literals;
@@ -99,6 +99,14 @@ long long msSince(Clock::time_point start)
 std::int64_t nowUnix()
 {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+// Exactly 11 characters from [A-Za-z0-9_-], as a video id is.
+bool looksLikeVideoId(const std::string &id)
+{
+    return id.size() == 11 && std::all_of(id.begin(), id.end(), [](char c) {
+               return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+           });
 }
 
 }
@@ -185,6 +193,31 @@ TEST_CASE("a resolve cancelled at 100 ms returns within 200 ms")
     MESSAGE("resolve cancelled at 100 ms, returned at " << took << " ms");
     CHECK(result.status.code == Error::Cancelled);
     CHECK(took < 200);
+}
+
+TEST_CASE("a search finds videos in one request, each with an id, a title and a channel")
+{
+    // What notices YouTube changing the search answer's shape: the offline
+    // tests replay what it was on 2026-10-01.
+    const auto http = std::make_shared<CountingHttpClient>();
+    ytres::Resolver::Options options;
+    options.http = http;
+    ytres::Resolver resolver(options);
+    const Clock::time_point start = Clock::now();
+    const ytres::Result<std::vector<ytres::SearchResult>> found = resolver.search("Rick Astley", 5);
+    const std::string outcome = errorName(found.status.code); // a std::string, which doctest prints as text
+    MESSAGE("search: " << outcome << " in " << msSince(start) << " ms, " << found.value.size() << " videos"
+                       << (found ? "" : " - " + found.status.message));
+    CHECK(outcome == "Ok");
+    CHECK(http->count.load() == 1); // no watch page, one page of results
+    CHECK_FALSE(found.value.empty());
+    CHECK(found.value.size() <= 5);
+    for (const ytres::SearchResult &video : found.value) {
+        CAPTURE(video.videoId);
+        CHECK(looksLikeVideoId(video.videoId));
+        CHECK_FALSE(video.title.empty());
+        CHECK_FALSE(video.author.empty());
+    }
 }
 
 TEST_CASE("the ladder falls through web to visionos")

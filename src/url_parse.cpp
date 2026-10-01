@@ -117,6 +117,11 @@ std::string canonicalWatchUrl(std::string_view videoId)
     return "https://www.youtube.com/watch?v=" + std::string(videoId);
 }
 
+std::string watchUrl(std::string_view videoId)
+{
+    return canonicalWatchUrl(videoId);
+}
+
 std::optional<std::string_view> queryValue(std::string_view url, std::string_view name)
 {
     const size_t question = url.find('?');

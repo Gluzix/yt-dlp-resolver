@@ -1,11 +1,11 @@
 #include "innertube.h"
 
 #include "ascii.h"
+#include "json_read.h"
 #include "url_parse.h"
 
 #include <nlohmann/json.hpp>
 
-#include <charconv>
 #include <initializer_list>
 #include <utility>
 
@@ -15,6 +15,14 @@ namespace {
 
 using nlohmann::json;
 using nlohmann::ordered_json;
+
+using jsonread::child;
+using jsonread::childArray;
+using jsonread::isTruthy;
+using jsonread::readBool;
+using jsonread::readInt;
+using jsonread::readString;
+using jsonread::toInt64;
 
 // Copied from yt-dlp's INNERTUBE_CLIENTS; docs/innertube-notes.md has the
 // source rows and the date they were read.
@@ -53,82 +61,59 @@ const char *const BROWSER_USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 
 const char *const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+// apiRequest()'s url is this, the endpoint, then API_QUERY.
+const char *const API_BASE_URL = "https://www.youtube.com/youtubei/v1/";
+const char *const API_QUERY = "?prettyPrint=false";
 const char *const ORIGIN = "https://www.youtube.com";
 
 // yt-dlp reads on past these; every other status is a failure.
 const std::string_view ACCEPTED_STATUSES[] = {"OK", "LIVE_STREAM_OFFLINE", "AGE_CHECK_REQUIRED", "AGE_VERIFICATION_REQUIRED"};
 
-const json *child(const json &object, const char *key)
+// context.client of every InnerTube request: the client's row, then what
+// yt-dlp's _extract_context forces onto every client, then the visitor data
+// when there is some. ordered_json keeps yt-dlp's key order, so the body
+// reads like the one in the notes.
+ordered_json clientContext(const ClientDef &client, const std::string &language, const std::string &visitorData)
 {
-    const auto it = object.find(key);
-    return it != object.end() && it->is_object() ? &*it : nullptr;
-}
-
-const json *childArray(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_array() ? &*it : nullptr;
-}
-
-std::string readString(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_string() ? it->get<std::string>() : std::string{};
-}
-
-bool readBool(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_boolean() && it->get<bool>();
-}
-
-// Python's truth test, which is how yt-dlp asks about a field: present but
-// 0, "" or [] counts as absent.
-bool isTruthy(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    if (it == object.end()) {
-        return false;
+    ordered_json context = ordered_json::object();
+    const std::pair<const char *, const char *> rowFields[] = {
+        {"clientName", client.clientName},
+        {"clientVersion", client.clientVersion},
+        {"deviceMake", client.deviceMake},
+        {"deviceModel", client.deviceModel},
+        {"userAgent", client.userAgent},
+        {"osName", client.osName},
+        {"osVersion", client.osVersion},
+    };
+    for (const auto &[key, value] : rowFields) {
+        if (value) {
+            context[key] = value;
+        }
     }
-    switch (it->type()) {
-    case json::value_t::boolean:
-        return it->get<bool>();
-    case json::value_t::number_integer:
-    case json::value_t::number_unsigned:
-    case json::value_t::number_float:
-        return it->get<double>() != 0.0;
-    case json::value_t::string:
-        return !it->get_ref<const std::string &>().empty();
-    case json::value_t::array:
-    case json::value_t::object:
-        return !it->empty();
-    default:
-        return false; // null
+    context["hl"] = language;
+    context["timeZone"] = "UTC";
+    context["utcOffsetMinutes"] = 0;
+    if (!visitorData.empty()) {
+        context["visitorData"] = visitorData;
     }
+    return context;
 }
 
-std::int64_t toInt64(std::string_view text)
+// The headers of every InnerTube request, X-Goog-Visitor-Id only when there
+// is visitor data: yt-dlp drops the header rather than send it empty.
+std::vector<std::pair<std::string, std::string>> apiHeaders(const ClientDef &client, const std::string &visitorData)
 {
-    std::int64_t value = 0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-    return error == std::errc() && end == text.data() + text.size() ? value : 0;
-}
-
-// YouTube sends some numbers as JSON numbers and others as strings
-// ("lengthSeconds": "212"). Either reads; missing or malformed is 0.
-std::int64_t readInt(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    if (it == object.end()) {
-        return 0;
+    std::vector<std::pair<std::string, std::string>> headers = {
+        {"Content-Type", "application/json"},
+        {"X-YouTube-Client-Name", std::to_string(client.contextClientName)},
+        {"X-YouTube-Client-Version", client.clientVersion},
+        {"Origin", ORIGIN},
+        {"User-Agent", userAgentHeader(client)},
+    };
+    if (!visitorData.empty()) {
+        headers.emplace_back("X-Goog-Visitor-Id", visitorData);
     }
-    if (it->is_number_integer()) {
-        return it->get<std::int64_t>();
-    }
-    if (it->is_string()) {
-        return toInt64(it->get_ref<const std::string &>());
-    }
-    return 0;
+    return headers;
 }
 
 // audio/webm; codecs="opus" -> opus. A muxed format lists both codecs.
@@ -409,33 +394,8 @@ const char *userAgentHeader(const ClientDef &client)
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData)
 {
-    // ordered_json keeps yt-dlp's key order, so the body reads like the one
-    // in the notes.
-    ordered_json clientContext = ordered_json::object();
-    const std::pair<const char *, const char *> fields[] = {
-        {"clientName", client.clientName},
-        {"clientVersion", client.clientVersion},
-        {"deviceMake", client.deviceMake},
-        {"deviceModel", client.deviceModel},
-        {"userAgent", client.userAgent},
-        {"osName", client.osName},
-        {"osVersion", client.osVersion},
-    };
-    for (const auto &[key, value] : fields) {
-        if (value) {
-            clientContext[key] = value;
-        }
-    }
-    // yt-dlp's _extract_context forces these three onto every client.
-    clientContext["hl"] = language;
-    clientContext["timeZone"] = "UTC";
-    clientContext["utcOffsetMinutes"] = 0;
-    if (!visitorData.empty()) {
-        clientContext["visitorData"] = visitorData;
-    }
-
     ordered_json body = ordered_json::object();
-    body["context"]["client"] = std::move(clientContext);
+    body["context"]["client"] = clientContext(client, language, visitorData);
     body["videoId"] = videoId;
     body["playbackContext"]["contentPlaybackContext"]["html5Preference"] = "HTML5_PREF_WANTS";
     body["contentCheckOk"] = true;
@@ -446,16 +406,27 @@ HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, c
     request.url = PLAYER_URL;
     // A caller's language in broken UTF-8 gets replaced rather than thrown over.
     request.body = body.dump(-1, ' ', false, ordered_json::error_handler_t::replace);
-    request.headers = {
-        {"Content-Type", "application/json"},
-        {"X-YouTube-Client-Name", std::to_string(client.contextClientName)},
-        {"X-YouTube-Client-Version", client.clientVersion},
-        {"Origin", ORIGIN},
-        {"User-Agent", userAgentHeader(client)},
-    };
-    if (!visitorData.empty()) {
-        request.headers.emplace_back("X-Goog-Visitor-Id", visitorData);
+    request.headers = apiHeaders(client, visitorData);
+    return request;
+}
+
+HttpRequest apiRequest(const ClientDef &client, const char *endpoint, const std::string &language,
+                       const std::string &visitorData, const ordered_json &fields)
+{
+    ordered_json body = ordered_json::object();
+    body["context"]["client"] = clientContext(client, language, visitorData);
+    if (fields.is_object()) {
+        for (auto field = fields.begin(); field != fields.end(); ++field) {
+            body[field.key()] = field.value();
+        }
     }
+
+    HttpRequest request;
+    request.method = "POST";
+    request.url = std::string(API_BASE_URL) + endpoint + API_QUERY;
+    // A query or a language in broken UTF-8 gets replaced rather than thrown over.
+    request.body = body.dump(-1, ' ', false, ordered_json::error_handler_t::replace);
+    request.headers = apiHeaders(client, visitorData);
     return request;
 }
 

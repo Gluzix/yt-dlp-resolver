@@ -171,7 +171,19 @@ struct VideoInfo {
     std::optional<Format> bestAudio() const;
 };
 
-struct SearchResult  { std::string videoId, title, author; std::int64_t durationSeconds{0}; };
+// As built in M3.
+struct SearchResult {
+    std::string videoId;
+    std::string title;                // UTF-8
+    std::string author;               // the channel's name
+    std::int64_t durationSeconds{0};  // 0 when YouTube gives none: live, upcoming
+    bool isLive{false};               // streaming now; resolve() answers it with NoFormats
+    bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
+};
+
+// https://www.youtube.com/watch?v=<videoId>, built in M3.
+std::string watchUrl(std::string_view videoId);
+
 struct PlaylistEntry { std::string videoId, title;         std::int64_t durationSeconds{0}; };
 
 struct Playlist {
@@ -200,6 +212,9 @@ public:
     ~Resolver();
 
     Result<VideoInfo>                 resolve(std::string_view urlOrId, const Request& = {});
+    // As built in M3: up to max videos, best match first, as the web client
+    // with the videos-only filter, following continuations up to ten pages.
+    // A later page's failure comes back with the videos read before it.
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request& = {});
     Result<Playlist>                  playlist(std::string_view urlOrId, std::size_t max, const Request& = {});
 };
@@ -283,21 +298,25 @@ Both are InnerTube POSTs like the player call — different endpoint, different
 body.
 
 - **Search**: `/youtubei/v1/search` with `{"query": ..., "params": ...}`.
-  The `params` field is a base64 protobuf filter; the videos-only filter
-  makes YouTube return no channels or playlists at all. That removes the
-  reason `firstVideoUrl` exists — today the bot asks for five results and
-  picks the first plain video by hand, because a band name ranks the artist's
-  channel first. Confirm the current filter value during M3 rather than
-  trusting a constant copied from anywhere, including this document.
+  The `params` field is a base64 protobuf filter, and yt-dlp's videos-only
+  value is `EgIQAfABAQ==`. This plan first assumed the filter keeps channels
+  out; the live probe of 2026-10-01 showed it does not — an artist's name
+  still puts a `channelRenderer` first — so the library skips whatever is not
+  a `videoRenderer`, which is what makes `firstVideoUrl`'s hand-picking
+  unnecessary.
 - **Playlists**: `/youtubei/v1/browse` with `browseId = "VL" + playlistId`,
-  then follow `continuationItemRenderer` tokens for pages beyond the first
+  then follow the continuation among the entries for pages beyond the first
   hundred. Stop as soon as `max` entries are collected — the bot asks for a
   bounded prefix, and a 6000-video playlist must not become sixty requests.
   Drop unplayable entries, matching what the bot already filters:
-  `[Private video]`, `[Deleted video]`, and entries with no title.
+  `[Private video]`, `[Deleted video]`, and entries with no title. YouTube
+  moved playlists to a new layout (`lockupViewModel` entries and
+  `continuationItemViewModel`), so the reader takes that and the older
+  `playlistVideoRenderer` one.
 
-The response shapes for both are deep renderer trees and are **not verified
-here**. Read them off live responses during M3/M4 and write them down.
+The response shapes were read off live responses on 2026-10-01 and are
+written down in `docs/innertube-notes.md`, "Search and playlists";
+`docs/m3-plan.md` and `docs/m4-plan.md` are the plans built on them.
 
 ## Testing
 
@@ -326,7 +345,7 @@ than any unit test. YouTube breaks this library; you mostly do not.
 | M0 | Skeleton and seams | CMake, public header, `CurlHttpClient`, JSON, CLI harness with `--record`, test target. No YouTube yet. |
 | M1 | Resolve via `visionos` | Player request, playability mapping, format model, `bestAudio()`, expiry. The usable MVP. |
 | M2 | Hardening | Client ladder, full error taxonomy, cancellation through curl, timeouts, thread safety, differential harness. |
-| M3 | Search | Videos-only filter; one request, no hand-picking. |
+| M3 | Search | Videos-only filter; one request, no hand-picking. Written 2026-10-01 without a build; see `docs/m3-plan.md`, "Before this is done". |
 | M4 | Playlists | Browse plus continuations, bounded by `max`. |
 | M5 | JS tier *(deferred)* | Only if a client that needs `base.js` ever becomes necessary. Currently buys nothing. |
 | M6 | Bot integration | Separate plan. `IMediaResolver` seam, native first, yt-dlp fallback. |

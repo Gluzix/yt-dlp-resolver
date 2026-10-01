@@ -3,6 +3,8 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -12,9 +14,10 @@
 // answer. docs/innertube-notes.md is the specification, read from yt-dlp.
 // =======================================================
 // Rules:
-// - playerRequest() sends exactly the headers and body keys the notes list,
-//   nothing more: a field yt-dlp never sends is a fingerprint YouTube can
-//   single out.
+// - playerRequest() and apiRequest() send exactly the headers and body keys
+//   the notes list, nothing more: a field yt-dlp never sends is a
+//   fingerprint YouTube can single out. Both build the client context and
+//   the headers through the same code, so the two cannot drift apart.
 // - The client table (CLIENTS in innertube.cpp) is data: burning a client or
 //   adding one is an edit to a row, not to code.
 // - parsePlayerResponse() is pure. The clock comes in as nowUnix, so a
@@ -72,6 +75,14 @@ const char *userAgentHeader(const ClientDef &client);
 // context.client.visitorData.
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData);
+
+// POST /youtubei/v1/<endpoint> as yt-dlp's _call_api sends it: the
+// client's context first, then fields in the order given. The same
+// headers as playerRequest(), and language and visitorData go out the same
+// way. fields is an object of the endpoint's own keys, never "context";
+// anything else adds nothing.
+HttpRequest apiRequest(const ClientDef &client, const char *endpoint, const std::string &language,
+                       const std::string &visitorData, const nlohmann::ordered_json &fields);
 
 using LogFn = std::function<void(LogLevel, std::string_view)>;
 
