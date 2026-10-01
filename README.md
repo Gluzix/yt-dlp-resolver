@@ -9,16 +9,25 @@ instead, and the one to two seconds of process startup per song go away.
 It is a library. `ytres_cli` is a development harness for trying it against
 live YouTube and recording test fixtures, not the product.
 
-This is milestone M2 of [docs/resolver-plan.md](docs/resolver-plan.md), the
-hardening of the M0 and M1 proof of concept, planned in
-[docs/m2-plan.md](docs/m2-plan.md): one video at a time, down a ladder of
-InnerTube clients that by default holds `visionos` alone, the client that
-needs neither YouTube's player JavaScript nor a PO Token. A `Resolver` keeps
-the watch page's visitor data between resolves, so a warm resolve is one
-request of about 150 ms; a cancel lands within about 25 ms, and one deadline
-bounds every request of a resolve. Search and playlists come later.
+This is milestone M3 of [docs/resolver-plan.md](docs/resolver-plan.md),
+search, planned in [docs/m3-plan.md](docs/m3-plan.md), on top of M2's
+hardening ([docs/m2-plan.md](docs/m2-plan.md)): one video at a time, down a
+ladder of InnerTube clients that by default holds `visionos` alone, the
+client that needs neither YouTube's player JavaScript nor a PO Token. A
+`Resolver` keeps the watch page's visitor data between resolves, so a warm
+resolve is one request of about 150 ms; a cancel lands within about 25 ms,
+and one deadline bounds every request of a call. A search is one request
+for the first twenty or so videos. Playlists come next, in M4
+([docs/m4-plan.md](docs/m4-plan.md)).
 [docs/innertube-notes.md](docs/innertube-notes.md) has the exact requests and
 what YouTube answered to them.
+
+> **M3 was written without being built.** Kamil asked that nothing be
+> compiled or run while it was coded, so the search code, its tests and the
+> `--search` harness have never met a compiler. Until the steps under
+> "Before this is done" in [docs/m3-plan.md](docs/m3-plan.md) are done - a
+> build with 0 warnings, `ctest`, the live tests and two live searches -
+> treat M3 as a draft.
 
 ## Requirements
 
@@ -37,6 +46,38 @@ ctest --test-dir build -C Debug --output-on-failure
 
 `ctest` runs `ytres_tests`, which never touches the network: it replays
 responses recorded in `tests/fixtures/`.
+
+## Using it
+
+```cpp
+ytres::Resolver resolver;
+
+ytres::Result<ytres::VideoInfo> info = resolver.resolve("https://youtu.be/dQw4w9WgXcQ");
+if (info) {
+    std::optional<ytres::Format> audio = info.value.bestAudio();
+    // info.value.title, info.value.webpageUrl, audio->url
+}
+
+ytres::Result<std::vector<ytres::SearchResult>> found = resolver.search("Dawid Podsiadło", 5);
+for (const ytres::SearchResult &video : found.value) {
+    // video.videoId, video.title, video.author, video.durationSeconds,
+    // video.isLive, video.isUpcoming; ytres::watchUrl(video.videoId)
+}
+```
+
+`search(query, max, request)` returns up to `max` videos, best match first,
+and an empty list when YouTube finds none. It asks as YouTube's `web` client
+with yt-dlp's videos-only filter, whatever `Options::clients` says, and
+skips the channels, playlists and shelves YouTube still puts among the
+results - an artist's name brings the artist's channel first. The first page
+holds about twenty videos; a larger `max` follows YouTube's continuation, one
+request per page, up to ten pages. It sends the visitor data a resolve has
+cached, but fetches none of its own. A live stream comes back with
+`isLive` and no length (`resolve()` answers it with `NoFormats`), a
+scheduled one with `isUpcoming`: the first result that is neither is the
+one to play. `max` of 0 or a blank query is `BadInput`. When a later page
+fails, the result carries that failure *and* the videos read before it, so
+a search cancelled on page three still has the first two.
 
 ## Running
 
@@ -57,6 +98,17 @@ prints the error code and YouTube's reason to stderr and exits with 1.
   player JavaScript and a PO Token, so YouTube turns it away (`NoFormats`);
   it is in the table to exercise the ladder.
 
+```
+build\Debug\ytres_cli.exe --search "Dawid Podsiadło" --max 25
+```
+
+searches instead, and prints one line per video: the page URL, the length in
+seconds (or `live` or `upcoming`), the channel and the title, separated by
+tabs. `--max` defaults to 5; 25 takes two pages. A search that fails on a
+later page prints the videos it got before the error. `--dump <file>` writes
+the first search page, scrubbed the same way; `--formats` and `--client`
+belong to a resolve and are refused with `--search`.
+
 Stream URLs expire after a few hours and work only from the IP address that
 asked for them.
 
@@ -74,7 +126,7 @@ each:
 | `Network`, `Timeout` | The network failed, or a request timed out, or the call's deadline ran out. | Try again later, or fall back. |
 | `Cancelled` | `Request::cancelled` said so. | Nothing. |
 | `Internal` | A bug or a resource failure inside the library, never YouTube's doing. | Log it as a bug; another resolver may still get the video. |
-| `BadInput` | Not a YouTube video link or id, or an empty or unknown client list. | Fix the call. |
+| `BadInput` | Not a YouTube video link or id, an empty or unknown client list, a search for no videos or with a blank query, or a request timeout of zero or less. | Fix the call. |
 
 When every client in the ladder fails, the code is the most telling of their
 answers: `BotCheck` first, then `Http`, then `Parse`, then `NoFormats`. A
@@ -84,6 +136,31 @@ outranks a later `Network` or `Timeout`. `Cancelled` and the video's own
 codes always come back as they are, with YouTube's words.
 
 `PlayerScript` is reserved for a JavaScript tier that does not exist.
+
+A search has no ladder: it asks one client, and its codes are the call's
+(`Cancelled`, `Timeout`, `Network`, `BadInput`, `Internal`) or YouTube's
+answer (`Http` for a refusal such as a 429, `Parse` for an answer it could
+not read). A failure on a page after the first keeps the videos already read
+in `value`.
+
+## Fixtures
+
+`tests/fixtures/` holds real responses, recorded with `ytres_cli --dump` and
+scrubbed of the requesting address (203.0.113.7) and visitor data
+(`FIXTURE`):
+
+| Fixture | What it is |
+|---|---|
+| `player_dQw4w9WgXcQ.json` | `visionos`'s answer for an ordinary video |
+| `player_web_dQw4w9WgXcQ.json` | `web`'s refusal of the same video without a PO Token |
+| `player_bot_check.json` | the bot check, asked without visitor data |
+| `player_unavailable.json` | a video that does not exist |
+| `search_videos.json` | the first page for "Dawid Podsiadło": a channel, four videos, the continuation |
+| `search_continuation.json` | its second page: three videos and the next continuation |
+| `search_empty.json` | a search that found nothing |
+| `search_live.json` | "lofi girl live": three live streams |
+
+The search pages are cut down to a few results each.
 
 ## Live tests
 
