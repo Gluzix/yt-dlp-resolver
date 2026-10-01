@@ -25,6 +25,7 @@ add_library(ytres STATIC
     include/ytres/ytres.h
     include/ytres/http.h
     src/ascii.h
+    src/json_read.h
     src/url_parse.h src/url_parse.cpp
     src/format_pick.cpp
     src/curl_http_client.h src/curl_http_client.cpp

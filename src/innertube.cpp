@@ -1,11 +1,11 @@
 #include "innertube.h"
 
 #include "ascii.h"
+#include "json_read.h"
 #include "url_parse.h"
 
 #include <nlohmann/json.hpp>
 
-#include <charconv>
 #include <initializer_list>
 #include <utility>
 
@@ -15,6 +15,14 @@ namespace {
 
 using nlohmann::json;
 using nlohmann::ordered_json;
+
+using jsonread::child;
+using jsonread::childArray;
+using jsonread::isTruthy;
+using jsonread::readBool;
+using jsonread::readInt;
+using jsonread::readString;
+using jsonread::toInt64;
 
 // Copied from yt-dlp's INNERTUBE_CLIENTS; docs/innertube-notes.md has the
 // source rows and the date they were read.
@@ -57,79 +65,6 @@ const char *const ORIGIN = "https://www.youtube.com";
 
 // yt-dlp reads on past these; every other status is a failure.
 const std::string_view ACCEPTED_STATUSES[] = {"OK", "LIVE_STREAM_OFFLINE", "AGE_CHECK_REQUIRED", "AGE_VERIFICATION_REQUIRED"};
-
-const json *child(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_object() ? &*it : nullptr;
-}
-
-const json *childArray(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_array() ? &*it : nullptr;
-}
-
-std::string readString(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_string() ? it->get<std::string>() : std::string{};
-}
-
-bool readBool(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    return it != object.end() && it->is_boolean() && it->get<bool>();
-}
-
-// Python's truth test, which is how yt-dlp asks about a field: present but
-// 0, "" or [] counts as absent.
-bool isTruthy(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    if (it == object.end()) {
-        return false;
-    }
-    switch (it->type()) {
-    case json::value_t::boolean:
-        return it->get<bool>();
-    case json::value_t::number_integer:
-    case json::value_t::number_unsigned:
-    case json::value_t::number_float:
-        return it->get<double>() != 0.0;
-    case json::value_t::string:
-        return !it->get_ref<const std::string &>().empty();
-    case json::value_t::array:
-    case json::value_t::object:
-        return !it->empty();
-    default:
-        return false; // null
-    }
-}
-
-std::int64_t toInt64(std::string_view text)
-{
-    std::int64_t value = 0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-    return error == std::errc() && end == text.data() + text.size() ? value : 0;
-}
-
-// YouTube sends some numbers as JSON numbers and others as strings
-// ("lengthSeconds": "212"). Either reads; missing or malformed is 0.
-std::int64_t readInt(const json &object, const char *key)
-{
-    const auto it = object.find(key);
-    if (it == object.end()) {
-        return 0;
-    }
-    if (it->is_number_integer()) {
-        return it->get<std::int64_t>();
-    }
-    if (it->is_string()) {
-        return toInt64(it->get_ref<const std::string &>());
-    }
-    return 0;
-}
 
 // audio/webm; codecs="opus" -> opus. A muxed format lists both codecs.
 std::string codecsOf(const std::string &mimeType)
