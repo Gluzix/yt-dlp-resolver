@@ -384,6 +384,25 @@ TEST_CASE("a result is live by its badge or its overlay, upcoming by its event d
     CHECK(results[4].author == "Short");
 }
 
+TEST_CASE("without lengthText, the length comes from the time status over the thumbnail, as yt-dlp reads it")
+{
+    const std::string items =
+        R"({"videoRenderer":{"videoId":"aaaaaaaaaaa","thumbnailOverlays":[{"thumbnailOverlayToggleButtonRenderer":{}},)"
+        R"({"thumbnailOverlayTimeStatusRenderer":{"text":{"simpleText":"12:34"},"style":"DEFAULT"}},)"
+        R"({"thumbnailOverlayTimeStatusRenderer":{"text":{"simpleText":"9:59"}}}]}},)"
+        R"({"videoRenderer":{"videoId":"bbbbbbbbbbb","thumbnailOverlays":)"
+        R"([{"thumbnailOverlayTimeStatusRenderer":{"text":{"runs":[{"text":"LIVE"}]},"style":"LIVE"}}]}},)"
+        + video("ccccccccccc", R"(,"thumbnailOverlays":[{"thumbnailOverlayTimeStatusRenderer":{"text":{"simpleText":"9:00"}}}])");
+    const auto page = parseSearchResponse(firstPage(section(items)));
+    REQUIRE(page);
+    const std::vector<ytres::SearchResult> &results = page.value.results;
+    REQUIRE(results.size() == 3);
+    CHECK(results[0].durationSeconds == 754); // the first time status, 12:34
+    CHECK(results[1].durationSeconds == 0);   // "LIVE"
+    CHECK(results[1].isLive);
+    CHECK(results[2].durationSeconds == 60);  // lengthText, 1:00, comes first
+}
+
 TEST_CASE("whatever is not a video with a valid id is read past, in any section, and the first continuation counts")
 {
     const std::string firstSection =
