@@ -100,6 +100,18 @@ struct VideoInfo
     std::optional<Format> bestAudio() const;
 };
 
+// One video a search found: enough to list it and to choose, not to play
+// it. Resolve its videoId, or watchUrl(videoId), for the streams.
+struct SearchResult
+{
+    std::string videoId;
+    std::string title;                // UTF-8
+    std::string author;               // the channel's name
+    std::int64_t durationSeconds{0};  // 0 when YouTube gives none: live, upcoming
+    bool isLive{false};               // streaming now; resolve() answers it with NoFormats
+    bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
+};
+
 // Per-call cancellation and deadline. cancelled may be empty. deadline bounds
 // the whole call - the watch page, every client of the ladder and the bot
 // check's second try alike: each request gets the smaller of
