@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -94,6 +95,59 @@ inline std::int64_t readInt(const json &object, const char *key)
         return toInt64(it->get_ref<const std::string &>());
     }
     return 0;
+}
+
+// InnerTube writes a label three ways: {"simpleText": ...}, {"runs":
+// [{"text": ...}, ...]} to be joined, or a view model's {"content": ...}.
+// Empty when object has no such key or the value is none of the three.
+inline std::string textOf(const json &object, const char *key)
+{
+    const json *label = child(object, key);
+    if (!label) {
+        return {};
+    }
+    std::string text = readString(*label, "simpleText");
+    const json *runs = childArray(*label, "runs");
+    if (text.empty() && runs) {
+        for (const json &run : *runs) {
+            if (run.is_object()) {
+                text += readString(run, "text");
+            }
+        }
+    }
+    return text.empty() ? readString(*label, "content") : text;
+}
+
+// A duration as YouTube writes it under a thumbnail, m:ss or h:mm:ss -
+// "4:36" is 276, "2:31:48" is 9108 - in seconds. Anything that is not two or
+// three groups of digits separated by colons is 0: "LIVE", "Upcoming", "".
+inline std::int64_t durationSeconds(std::string_view text)
+{
+    // Nine digits a group keeps the sum far inside 64 bits whatever comes.
+    const std::size_t MAX_GROUP_DIGITS = 9;
+    std::int64_t total = 0;
+    int groups = 0;
+    for (std::size_t start = 0;;) {
+        const std::size_t colon = text.find(':', start);
+        const std::string_view group =
+            text.substr(start, colon == std::string_view::npos ? std::string_view::npos : colon - start);
+        if (group.empty() || group.size() > MAX_GROUP_DIGITS || ++groups > 3) {
+            return 0;
+        }
+        std::int64_t value = 0;
+        for (const char c : group) {
+            if (c < '0' || c > '9') {
+                return 0;
+            }
+            value = value * 10 + (c - '0');
+        }
+        total = total * 60 + value;
+        if (colon == std::string_view::npos) {
+            break;
+        }
+        start = colon + 1;
+    }
+    return groups >= 2 ? total : 0;
 }
 
 }
