@@ -197,6 +197,9 @@ public:
     // YouTube finds none. One request for the first twenty or so, one more
     // per further page. Channels, playlists and shelves in the results are
     // skipped. max of 0, or a query that is empty or all spaces, is BadInput.
+    // A first page where YouTube counts results but holds none the library
+    // can read is Parse, not an empty list: YouTube has changed its answer,
+    // and the caller should fall back rather than report nothing found.
     // Asked as the web client whatever Options::clients says: that list is
     // the player's ladder. Cached visitor data is sent when there is some,
     // but none is fetched for a search.

@@ -22,6 +22,11 @@
 //   promo; both are read past, as are shelves and whatever YouTube adds.
 //   A result without a valid video id is dropped rather than handed on to
 //   fail in resolve().
+// - A first page with no video it can read, while YouTube's
+//   estimatedResults says there are some, is Parse, not an empty list: the
+//   results have moved into a renderer the library does not know, and
+//   "nothing found" would keep the caller from falling back to another
+//   resolver. A further page with nothing readable is only the end.
 // - parseSearchResponse() is pure, like every reader of YouTube's answers.
 // =======================================================
 namespace ytres::innertube {
@@ -43,8 +48,10 @@ struct SearchPage
 //   contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[]
 // on a first page, of
 //   onResponseReceivedCommands[].appendContinuationItemsAction.continuationItems[]
-// on a further one, and the continuation beside them. Pure. Not JSON, or JSON
-// with neither container, is Parse; a page with no videos in it is not.
+// on a further one, and the continuation beside them. Pure. Not JSON, JSON
+// with neither container, or a first page whose estimatedResults is above 0
+// but which holds no readable video, is Parse; any other page with no videos
+// in it is not.
 Result<SearchPage> parseSearchResponse(const std::string &body);
 
 }

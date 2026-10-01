@@ -75,7 +75,10 @@ request per page, up to ten pages. It sends the visitor data a resolve has
 cached, but fetches none of its own. A live stream comes back with
 `isLive` and no length (`resolve()` answers it with `NoFormats`), a
 scheduled one with `isUpcoming`: the first result that is neither is the
-one to play. `max` of 0 or a blank query is `BadInput`. When a later page
+one to play. `max` of 0 or a blank query is `BadInput`. A first page on
+which YouTube counts results but holds none the library can read is `Parse`,
+not an empty list: YouTube has changed its answer, and the caller should
+fall back rather than tell the user nothing was found. When a later page
 fails, the result carries that failure *and* the videos read before it, so
 a search cancelled on page three still has the first two.
 

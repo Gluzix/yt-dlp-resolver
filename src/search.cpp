@@ -18,6 +18,7 @@ using nlohmann::ordered_json;
 using jsonread::child;
 using jsonread::childArray;
 using jsonread::durationSeconds;
+using jsonread::readInt;
 using jsonread::readString;
 using jsonread::textOf;
 
@@ -29,9 +30,10 @@ const char *const VIDEOS_ONLY = "EgIQAfABAQ==";
 // further page, the first appendContinuationItemsAction among
 // onResponseReceivedCommands, looked for first since only a continuation
 // answer has one; on a first page, the section list. Null when the answer
-// has neither.
-const json *pageItems(const json &root)
+// has neither. firstPage says which it found.
+const json *pageItems(const json &root, bool &firstPage)
 {
+    firstPage = false;
     if (const json *commands = childArray(root, "onResponseReceivedCommands")) {
         for (const json &command : *commands) {
             const json *action = child(command, "appendContinuationItemsAction");
@@ -48,7 +50,9 @@ const json *pageItems(const json &root)
             return nullptr;
         }
     }
-    return childArray(*at, "contents");
+    const json *sectionList = childArray(*at, "contents");
+    firstPage = sectionList != nullptr;
+    return sectionList;
 }
 
 // Streaming now, by either of the marks yt-dlp reads: the LIVE badge, or a
@@ -114,7 +118,8 @@ void appendVideos(const json &section, std::vector<SearchResult> &results)
 
 Result<SearchPage> readSearchResponse(const json &root)
 {
-    const json *items = pageItems(root);
+    bool firstPage = false;
+    const json *items = pageItems(root, firstPage);
     if (!items) {
         return {{Error::Parse, "The search response holds no results section"}, {}};
     }
@@ -127,6 +132,13 @@ Result<SearchPage> readSearchResponse(const json &root)
         } else if (page.next.token.empty()) {
             page.next = continuationOf(item);
         }
+    }
+    // YouTube counts results, yet none is a video the library can read: the
+    // results have moved into a renderer it does not know. Saying "nothing
+    // found" would keep every caller from falling back to another resolver.
+    // Only a first page says so; a further page with nothing in it is the end.
+    if (firstPage && page.results.empty() && readInt(root, "estimatedResults") > 0) {
+        return {{Error::Parse, "The search response counts results but holds no video the library can read"}, {}};
     }
     return {{}, std::move(page)};
 }
