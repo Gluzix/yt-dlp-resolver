@@ -5,6 +5,7 @@
 #include <chrono>
 #include <deque>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <sstream>
 #include <string>
@@ -23,12 +24,14 @@ inline std::string headerValue(const ytres::HttpRequest &request, const std::str
     return {};
 }
 
-// Stands in for the network: the InnerTube POST gets the next of
+// Stands in for the network: the player's InnerTube POST gets the next of
 // playerBodyQueue while it lasts, else the asking client's entry in
-// playerBodyByClient, else playerBody; any other request (the watch page)
-// gets watchPage; and every request is kept for the test to look at, with
-// the time it arrived. A failure set for the asking client, or for all
-// player requests or the page, comes back instead of a response.
+// playerBodyByClient, else playerBody; a POST to another endpoint (search,
+// browse) gets the next body queued for it in apiBodies; any other request
+// (the watch page) gets watchPage; and every request is kept for the test
+// to look at, with the time it arrived. A failure set for the asking
+// client, for all player requests, for an endpoint or for the page comes
+// back instead of a response.
 class FakeHttpClient : public ytres::HttpClient
 {
 public:
@@ -43,6 +46,11 @@ public:
     {
         requests.push_back(request);
         arrivals.push_back(Clock::now());
+        // Answered at once: the delays below are the player's and the page's.
+        const std::string endpoint = apiEndpoint(request.url);
+        if (!endpoint.empty()) {
+            return answerApi(endpoint);
+        }
         const bool player = request.url.find("/youtubei/v1/player") != std::string::npos;
         // A request slower than its timeout waits the timeout out and fails,
         // as the HttpClient contract has a real one do.
@@ -89,10 +97,47 @@ public:
     ytres::Status pageFailure;
     std::chrono::milliseconds playerDelay{0}; // how long each request takes to answer
     std::chrono::milliseconds pageDelay{0};
+    // By endpoint name, "search" or "browse".
+    std::map<std::string, std::deque<std::string>> apiBodies; // answered in turn; running out is a test bug
+    std::map<std::string, ytres::Status> apiFailure;          // not Ok: returned instead, every time
+    std::map<std::string, long> apiStatus;                    // default 200
     std::vector<ytres::HttpRequest> requests;
     std::vector<Clock::time_point> arrivals; // one per request
 
 private:
+    // "search" or "browse" for a POST to that InnerTube endpoint; empty for
+    // the player and the watch page, which keep the answers above.
+    static std::string apiEndpoint(const std::string &url)
+    {
+        for (const char *endpoint : {"search", "browse"}) {
+            if (url.find(std::string("/youtubei/v1/") + endpoint) != std::string::npos) {
+                return endpoint;
+            }
+        }
+        return {};
+    }
+
+    ytres::Result<ytres::HttpResponse> answerApi(const std::string &endpoint)
+    {
+        const auto failure = apiFailure.find(endpoint);
+        if (failure != apiFailure.end() && failure->second.code != ytres::Error::Ok) {
+            return {failure->second, {}};
+        }
+        std::deque<std::string> &bodies = apiBodies[endpoint];
+        if (bodies.empty()) {
+            return {{ytres::Error::Internal, "FakeHttpClient has no " + endpoint + " body left: the test queued too few"}, {}};
+        }
+        const auto status = apiStatus.find(endpoint);
+        const long code = status != apiStatus.end() ? status->second : 200;
+        ytres::Result<ytres::HttpResponse> result{{}, {code, std::move(bodies.front())}};
+        bodies.pop_front();
+        if (result.value.status >= 400) {
+            // what the HttpClient contract asks of every client
+            result.status = {ytres::Error::Http, "HTTP " + std::to_string(result.value.status)};
+        }
+        return result;
+    }
+
     // Never early, whatever the platform's sleep does: a test that measures
     // what is left of a deadline needs the time really spent.
     static void waitUntil(Clock::time_point until)
