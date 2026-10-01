@@ -114,6 +114,15 @@ struct SearchResult
     bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
 };
 
+// One video of a playlist: enough to list it, not to play it. Resolve its
+// videoId, or watchUrl(videoId), for the streams.
+struct PlaylistEntry
+{
+    std::string videoId;
+    std::string title;                // UTF-8
+    std::int64_t durationSeconds{0};  // 0 when YouTube gives none
+};
+
 // https://www.youtube.com/watch?v=<videoId>: the page of a search result or
 // a playlist entry, and a valid resolve() target.
 std::string watchUrl(std::string_view videoId);
