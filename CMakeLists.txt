@@ -34,6 +34,7 @@ add_library(ytres STATIC
     src/search.h src/search.cpp
     src/watch_page.h src/watch_page.cpp
     src/visitor_cache.h src/visitor_cache.cpp
+    src/visitor_data.h
     src/resolver.cpp
 )
 target_include_directories(ytres
