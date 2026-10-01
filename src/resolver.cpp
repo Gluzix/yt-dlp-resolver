@@ -3,6 +3,7 @@
 
 #include "continuation.h"
 #include "innertube.h"
+#include "playlist.h"
 #include "search.h"
 #include "url_parse.h"
 #include "visitor_cache.h"
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <cstddef>
 #include <exception>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -28,6 +30,12 @@ const size_t ERROR_EXCERPT_BYTES = 200;
 // A search reads no more pages than this, whatever max asks for: about two
 // hundred videos, and a stop for a feed that would hand out pages forever.
 const int MAX_SEARCH_PAGES = 10;
+
+// A playlist reads no more pages than this, whatever max asks for: twenty
+// thousand videos, more than any playlist YouTube lets anyone make. With a
+// token that repeats, it is one of the two stops yt-dlp's _entries has for
+// a feed that loops.
+const int MAX_PLAYLIST_PAGES = 200;
 
 std::int64_t nowUnix()
 {
@@ -109,7 +117,7 @@ struct Resolver::Impl
     // What one call carries into each of its requests.
     struct Call
     {
-        std::string videoId; // empty for a search, which is about no one video
+        std::string videoId; // empty for a search or a playlist, which are about no one video
         const Request &request;
         Clock::time_point deadline;
     };
@@ -120,6 +128,7 @@ struct Resolver::Impl
 
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request);
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request);
+    Result<Playlist> playlist(std::string_view urlOrId, std::size_t max, const Request &request);
     Result<Clock::time_point> callDeadline(const Request &request) const;
     Result<std::string> visitorDataToSend(const innertube::ClientDef &client, const Call &call);
     Result<std::string> fetchVisitorData(const innertube::ClientDef &client, const Call &call);
@@ -127,6 +136,9 @@ struct Resolver::Impl
     Result<innertube::SearchPage> askSearch(const innertube::ClientDef &client, const std::string &query,
                                             const std::string &visitorData, const innertube::Continuation &continuation,
                                             const Call &call) const;
+    Result<innertube::PlaylistPage> askPlaylist(const innertube::ClientDef &client, const std::string &playlistId,
+                                                const std::string &visitorData,
+                                                const innertube::Continuation &continuation, const Call &call) const;
     Result<HttpResponse> send(HttpRequest httpRequest, const Call &call) const;
 
     void log(LogLevel level, std::string_view text) const
@@ -178,6 +190,21 @@ Result<std::vector<SearchResult>> Resolver::search(std::string_view query, std::
             return {{Error::BadInput, "This Resolver has been moved from"}, {}};
         }
         return impl->search(query, max, request);
+    } catch (const std::exception &e) {
+        return {{Error::Internal, std::string("Unexpected failure: ") + e.what()}, {}};
+    } catch (...) {
+        return {{Error::Internal, "Unexpected failure"}, {}};
+    }
+}
+
+Result<Playlist> Resolver::playlist(std::string_view urlOrId, std::size_t max, const Request &request)
+{
+    // The same net as resolve()'s, for the same reasons.
+    try {
+        if (!impl) {
+            return {{Error::BadInput, "This Resolver has been moved from"}, {}};
+        }
+        return impl->playlist(urlOrId, max, request);
     } catch (const std::exception &e) {
         return {{Error::Internal, std::string("Unexpected failure: ") + e.what()}, {}};
     } catch (...) {
@@ -342,6 +369,75 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     return {{}, std::move(found)};
 }
 
+Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t max, const Request &request)
+{
+    const Result<Clock::time_point> deadline = callDeadline(request);
+    if (!deadline) {
+        return {deadline.status, {}};
+    }
+    if (max == 0) {
+        return {{Error::BadInput, "A playlist must be asked for at least one video"}, {}};
+    }
+    const Result<std::string> playlistId = parsePlaylistId(urlOrId);
+    if (!playlistId) {
+        return {playlistId.status, {}};
+    }
+    // yt-dlp lists a playlist as the web client, as it searches.
+    const innertube::ClientDef *web = innertube::findClient(ClientId::Web);
+    if (!web) {
+        return {{Error::Internal, "The client table has no web client"}, {}};
+    }
+    // As for a search: no watch page, whatever a resolve left in the cache
+    // on every page, and with nothing cached, the visitor data the page
+    // before named, kept out of the cache.
+    const std::string cached = visitorCache.get(Clock::now()).value;
+    std::string visitorData = cached;
+    const Call call{std::string{}, request, deadline.value};
+
+    Playlist list;
+    list.playlistId = playlistId.value;
+    innertube::Continuation next;
+    std::set<std::string> tokensSent;
+    for (int pageNumber = 1;; ++pageNumber) {
+        Result<innertube::PlaylistPage> page = askPlaylist(*web, list.playlistId, visitorData, next, call);
+        // A later page's failure keeps what the pages before it brought: the
+        // title, the count and the entries.
+        if (!page) {
+            return {page.status, std::move(list)};
+        }
+        if (pageNumber == 1) {
+            list.title = std::move(page.value.title);
+            list.totalCount = page.value.totalCount;
+        }
+        std::vector<PlaylistEntry> &entries = page.value.entries;
+        log(LogLevel::Debug, "playlist page " + std::to_string(pageNumber) + ": " + std::to_string(entries.size()) + " videos");
+        for (PlaylistEntry &entry : entries) {
+            if (list.entries.size() >= max) {
+                break;
+            }
+            list.entries.push_back(std::move(entry));
+        }
+        // Unlike a search, a page that brought no entry may still lead on:
+        // it can hold nothing but videos nobody may watch. The two guards
+        // below stop a feed that loops instead.
+        if (list.entries.size() >= max || page.value.next.token.empty() || pageNumber >= MAX_PLAYLIST_PAGES) {
+            break;
+        }
+        // A token sent before would fetch a page read before, and the one
+        // after it, for ever.
+        if (!tokensSent.insert(page.value.next.token).second) {
+            log(LogLevel::Warning, "The playlist " + list.playlistId + " leads back to a page already read, after page "
+                                       + std::to_string(pageNumber) + "; stopping there");
+            break;
+        }
+        next = std::move(page.value.next);
+        if (cached.empty() && !page.value.visitorData.empty()) {
+            visitorData = std::move(page.value.visitorData);
+        }
+    }
+    return {{}, std::move(list)};
+}
+
 // The visitor data for a player request: the cached value while it is fresh,
 // else what the watch page has now. When the page brings none, a stale value
 // still goes out, since an old visitor id beats none.
@@ -427,6 +523,27 @@ Result<innertube::SearchPage> Resolver::Impl::askSearch(const innertube::ClientD
         return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
     }
     return innertube::parseSearchResponse(response.value.body);
+}
+
+// One page of a playlist: the first when continuation has no token, else the
+// one it leads to.
+Result<innertube::PlaylistPage> Resolver::Impl::askPlaylist(const innertube::ClientDef &client,
+                                                            const std::string &playlistId,
+                                                            const std::string &visitorData,
+                                                            const innertube::Continuation &continuation,
+                                                            const Call &call) const
+{
+    const Result<HttpResponse> response =
+        send(innertube::playlistRequest(client, playlistId, options.language, visitorData, continuation), call);
+    if (!response) {
+        return {response.status, {}};
+    }
+    // As for the player: a redirect CurlHttpClient did not follow, or
+    // whatever another client lets through.
+    if (response.value.status < 200 || response.value.status >= 300) {
+        return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
+    }
+    return innertube::parsePlaylistResponse(response.value.body);
 }
 
 // Sends one request within what is left of the call's deadline.
