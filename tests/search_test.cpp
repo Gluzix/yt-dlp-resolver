@@ -44,24 +44,25 @@ const Headers WEB_HEADERS = {
     {"User-Agent", CHROME_UA},
 };
 
-// The first page's body in docs/innertube-notes.md, "Search", with the
-// query's one non-ASCII letter as a JSON escape.
-const char *const NOTES_BODY = R"json({"context": {"client": {"clientName": "WEB", "clientVersion": "2.20260708.00.00",
-                        "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0}},
- "query": "Dawid Podsiadło",
- "params": "EgIQAfABAQ=="})json";
-
-// The text of a JSON string literal. Non-ASCII expectations are spelled as
-// JSON escapes, as in player_response_test.cpp, so this file stays ASCII.
-std::string utf8(const char *jsonString)
-{
-    return json::parse(jsonString).get<std::string>();
-}
+// Non-ASCII expectations are spelled as UTF-8 byte escapes, as in
+// client_ladder_test.cpp, so this file stays ASCII: "\xC5\x82" is the Polish
+// l with stroke. Mind that a hex escape runs on through any hex digit after
+// it.
 
 // The query the fixtures answer, and the channel of most of their results.
 std::string artist()
 {
-    return utf8(R"json("Dawid Podsiadło")json");
+    return "Dawid Podsiad\xC5\x82o";
+}
+
+// The first page's body in docs/innertube-notes.md, "Search", for artist().
+std::string notesBody()
+{
+    return R"json({"context": {"client": {"clientName": "WEB", "clientVersion": "2.20260708.00.00",
+                        "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0}},
+ "query": ")json"
+         + artist() + R"json(",
+ "params": "EgIQAfABAQ=="})json";
 }
 
 const ytres::innertube::ClientDef &webClient()
@@ -122,7 +123,7 @@ TEST_CASE("the search request is the one in the notes, byte for byte")
     CHECK(request.url == SEARCH_URL);
     CHECK(request.headers == WEB_HEADERS);
     // In yt-dlp's order too: the context, then the query, then the filter.
-    CHECK(request.body == ordered_json::parse(NOTES_BODY).dump());
+    CHECK(request.body == ordered_json::parse(notesBody()).dump());
 }
 
 TEST_CASE("visitor data goes out with a search as with the player: a header and the client context")
@@ -286,7 +287,7 @@ TEST_CASE("the recorded first page: the channel read past, four videos, the cont
     REQUIRE(results.size() == 4);
 
     CHECK(results[0].videoId == "MxWXAIWsppY");
-    CHECK(results[0].title == utf8(R"json("Dawid Podsiadło \"na błysk\"")json"));
+    CHECK(results[0].title == "Dawid Podsiad\xC5\x82o \"na b\xC5\x82ysk\"");
     CHECK(results[0].author == artist());
     CHECK(results[0].durationSeconds == 276);
     CHECK_FALSE(results[0].isLive);
@@ -296,7 +297,7 @@ TEST_CASE("the recorded first page: the channel read past, four videos, the cont
     CHECK(results[1].durationSeconds == 291);
 
     CHECK(results[2].videoId == "2DiP0mMeaT8");
-    CHECK(results[2].title == utf8(R"json("Dawid Podsiadło - mori (Official Video)")json"));
+    CHECK(results[2].title == "Dawid Podsiad\xC5\x82o - mori (Official Video)");
     CHECK(results[2].durationSeconds == 194);
 
     CHECK(results[3].videoId == "jyXHU7PtsmI");
