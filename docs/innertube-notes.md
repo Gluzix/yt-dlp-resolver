@@ -258,3 +258,123 @@ M2, the same day and line:
   `curl_easy_perform`, which polls its progress callback about once a
   second while connecting, and after 120 to 127 ms through the multi
   interface's 20 ms polls.
+
+## Search and playlists
+
+Read from yt-dlp's `_search.py`, `_tab.py` and `_base.py` at master and
+probed against live YouTube on 2026-10-01, with the `web` client and no
+visitor data. Both endpoints answered the bare request with HTTP 200; neither
+asked for a PO Token or met a bot check. The `visionos` and `web` rows of
+yt-dlp's client table were unchanged from 2026-09-24.
+
+yt-dlp makes both kinds of request as the `web` client (`default_client='web'`
+in `_search_results` and `_extract_response`), through `_call_api`: the
+client's context first, then the query's own fields, with the headers the
+player request has.
+
+### Search
+
+```
+POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
+
+{"context": {"client": {"clientName": "WEB", "clientVersion": "2.20260708.00.00",
+                        "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0}},
+ "query": "Dawid Podsiadło",
+ "params": "EgIQAfABAQ=="}
+```
+
+- `EgIQAfABAQ==` is yt-dlp's `_SEARCH_PARAMS`, commented "Videos only". The
+  older `EgIQAQ==` that circulates is not what yt-dlp sends now.
+- The filter does **not** keep channels out. For an artist's name the first
+  item of the first page was a `channelRenderer`, followed by 19
+  `videoRenderer`s. Whoever reads the results still has to skip what is not
+  a video.
+- First page: `contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[]`
+  held one `itemSectionRenderer` (the results, in its `contents[]`) and one
+  `continuationItemRenderer`, as siblings.
+- The continuation token is at
+  `continuationItemRenderer.continuationEndpoint.continuationCommand.token`;
+  the endpoint also carries `clickTrackingParams`.
+- A further page: yt-dlp keeps `query` and `params` in the body and adds
+  `"continuation": <token>` and `"clickTracking": {"clickTrackingParams": ...}`
+  (`_build_api_continuation_query`). The answer has no `contents`; the items
+  are at `onResponseReceivedCommands[0].appendContinuationItemsAction.continuationItems[]`,
+  again an `itemSectionRenderer` (20 videos) and a `continuationItemRenderer`.
+- A `videoRenderer` has `videoId`, `title.runs[].text`,
+  `lengthText.simpleText` ("4:36"), `ownerText.runs[0].text`,
+  `longBylineText`, `shortBylineText`, `thumbnailOverlays[]`,
+  `publishedTimeText`, `viewCountText`.
+- A live stream's `videoRenderer` has no `lengthText` and a badge:
+  `badges[].metadataBadgeRenderer.style` is `BADGE_STYLE_TYPE_LIVE_NOW`.
+  yt-dlp also reads `thumbnailOverlays[].thumbnailOverlayTimeStatusRenderer.style`
+  being `LIVE`, and takes `upcomingEventData` to mean an upcoming one.
+- A search with no results: `estimatedResults` is `"0"` and the item section
+  holds one `backgroundPromoRenderer`. No continuation.
+- Sizes: a first page is about 265 KB of JSON (24 KB on the wire with gzip),
+  0.5 s.
+- Every result carries preview-thumbnail urls with `&ip=<the requesting
+  address>`: 57 occurrences in one page. The dump scrubber's `ip=` rule
+  covers them.
+
+### Playlists
+
+```
+POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
+
+{"context": {...as above...}, "browseId": "VLPLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4"}
+```
+
+- `browseId` is `VL` followed by the playlist id (`_reload_with_unavailable_videos`
+  and the tab extractor both build it that way). yt-dlp adds
+  `"params": "wgYCCAA="` only to make YouTube list unavailable videos too;
+  without it they are left out.
+- Playlist ids, from yt-dlp's `_PLAYLIST_ID_RE`:
+  `(?:(?:PL|LL|EC|UU|FL|RD|UL|TL|PU|OLAK5uy_)[0-9A-Za-z-_]{10,}|RDMM|WL|LL|LM)`.
+  `RD...` are mixes generated per viewer, `WL`, `LL` and `LM` are a signed-in
+  viewer's own lists.
+- **The layout changed.** yt-dlp still reads the old one,
+  `playlistVideoListRenderer.contents[]` of `playlistVideoRenderer` with a
+  `continuationItemRenderer` at the end, but both playlists probed (an
+  ordinary one of 7 videos and a podcast of 447) came as
+  `contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[]`
+  = one `itemSectionRenderer` and one `continuationItemViewModel`, and inside
+  the item section's `contents[]`: up to 100 `lockupViewModel`s and, when
+  there are more, a `continuationItemViewModel`. No `playlistVideoListRenderer`
+  anywhere. yt-dlp handles both (`_extract_lockup_view_model`,
+  `continuationItemViewModel` in `_extract_continuation`).
+- A `lockupViewModel` for a video: `contentType` is
+  `LOCKUP_CONTENT_TYPE_VIDEO`, `contentId` is the video id, the title is at
+  `metadata.lockupMetadataViewModel.title.content`, and the duration text
+  ("2:31:48") at `contentImage.thumbnailViewModel.overlays[].thumbnailBottomOverlayViewModel.badges[].thumbnailBadgeViewModel.text`.
+  yt-dlp also looks under `thumbnailOverlayBadgeViewModel.thumbnailBadges[]`,
+  reads `badgeStyle` `THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE` as live and the
+  text "Upcoming" as upcoming.
+- The continuation token of the new layout:
+  `continuationItemViewModel.continuationCommand.innertubeCommand.continuationCommand.token`,
+  with `clickTrackingParams` on the `innertubeCommand`.
+- **Two continuations, one to follow.** The one among the entries loads the
+  next hundred. The one at section-list level (present even for the 7-video
+  playlist) loads something else; yt-dlp follows it only when it finds no
+  other and expects nothing from it.
+- A further page: `{"context": ..., "continuation": <token>, "clickTracking": ...}`
+  to the same endpoint. The answer's entries are at
+  `onResponseReceivedActions[0].appendContinuationItemsAction.continuationItems[]`:
+  100 `lockupViewModel`s and the next `continuationItemViewModel`. The answer
+  also has a `contents` key, but it is a stub (a `tabRenderer` with no
+  `content`) and holds no entries.
+- The playlist's title is at `metadata.playlistMetadataRenderer.title`. The
+  header is a `pageHeaderRenderer` now; `playlistHeaderRenderer` was absent.
+- The count is the first stat of
+  `sidebar.playlistSidebarRenderer.items[].playlistSidebarPrimaryInfoRenderer.stats[0]`:
+  `{"runs": [{"text": "447"}, {"text": " episodes"}]}`, or `" videos"`.
+  yt-dlp reads the same place, falling back to the old header's
+  `numVideosText` and `byline`.
+- A playlist that does not exist: HTTP 200, no `contents`, and
+  `alerts[0].alertRenderer` = `{"type": "ERROR", "text": {"runs": [{"text":
+  "The playlist does not exist."}]}}`.
+- Sizes: about 12 KB of JSON per entry. A full page of 100 is 1.25 MB before
+  gzip, well under the HTTP client's 8 MB cap; 0.2 to 0.4 s.
+- The entries carry the same `&ip=` preview urls as search results.
+
+The fixtures `tests/fixtures/search_*.json` and `playlist_*.json` are these
+answers, scrubbed and cut down to a few entries each.

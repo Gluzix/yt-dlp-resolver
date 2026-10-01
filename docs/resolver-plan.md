@@ -283,21 +283,25 @@ Both are InnerTube POSTs like the player call — different endpoint, different
 body.
 
 - **Search**: `/youtubei/v1/search` with `{"query": ..., "params": ...}`.
-  The `params` field is a base64 protobuf filter; the videos-only filter
-  makes YouTube return no channels or playlists at all. That removes the
-  reason `firstVideoUrl` exists — today the bot asks for five results and
-  picks the first plain video by hand, because a band name ranks the artist's
-  channel first. Confirm the current filter value during M3 rather than
-  trusting a constant copied from anywhere, including this document.
+  The `params` field is a base64 protobuf filter, and yt-dlp's videos-only
+  value is `EgIQAfABAQ==`. This plan first assumed the filter keeps channels
+  out; the live probe of 2026-10-01 showed it does not — an artist's name
+  still puts a `channelRenderer` first — so the library skips whatever is not
+  a `videoRenderer`, which is what makes `firstVideoUrl`'s hand-picking
+  unnecessary.
 - **Playlists**: `/youtubei/v1/browse` with `browseId = "VL" + playlistId`,
-  then follow `continuationItemRenderer` tokens for pages beyond the first
+  then follow the continuation among the entries for pages beyond the first
   hundred. Stop as soon as `max` entries are collected — the bot asks for a
   bounded prefix, and a 6000-video playlist must not become sixty requests.
   Drop unplayable entries, matching what the bot already filters:
-  `[Private video]`, `[Deleted video]`, and entries with no title.
+  `[Private video]`, `[Deleted video]`, and entries with no title. YouTube
+  moved playlists to a new layout (`lockupViewModel` entries and
+  `continuationItemViewModel`), so the reader takes that and the older
+  `playlistVideoRenderer` one.
 
-The response shapes for both are deep renderer trees and are **not verified
-here**. Read them off live responses during M3/M4 and write them down.
+The response shapes were read off live responses on 2026-10-01 and are
+written down in `docs/innertube-notes.md`, "Search and playlists";
+`docs/m3-plan.md` and `docs/m4-plan.md` are the plans built on them.
 
 ## Testing
 
