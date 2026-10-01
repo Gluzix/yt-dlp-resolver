@@ -78,6 +78,19 @@ bool isLiveNow(const json &renderer)
     return false;
 }
 
+// The first time status over the thumbnail; null when there is none.
+const json *timeStatusOf(const json &renderer)
+{
+    if (const json *overlays = childArray(renderer, "thumbnailOverlays")) {
+        for (const json &overlay : *overlays) {
+            if (const json *timeStatus = child(overlay, "thumbnailOverlayTimeStatusRenderer")) {
+                return timeStatus;
+            }
+        }
+    }
+    return nullptr;
+}
+
 SearchResult readVideo(const json &renderer)
 {
     SearchResult result;
@@ -90,8 +103,14 @@ SearchResult readVideo(const json &renderer)
             break;
         }
     }
-    // A live or an upcoming stream has no lengthText, and reads as 0.
-    result.durationSeconds = durationSeconds(textOf(renderer, "lengthText"));
+    // Without lengthText, yt-dlp reads the length off the time status over the
+    // thumbnail. A live or an upcoming stream has neither, or "LIVE": 0.
+    std::string length = textOf(renderer, "lengthText");
+    if (length.empty()) {
+        const json *timeStatus = timeStatusOf(renderer);
+        length = timeStatus ? textOf(*timeStatus, "text") : std::string{};
+    }
+    result.durationSeconds = durationSeconds(length);
     result.isLive = isLiveNow(renderer);
     result.isUpcoming = child(renderer, "upcomingEventData") != nullptr;
     return result;
