@@ -315,6 +315,34 @@ POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
 - Every result carries preview-thumbnail urls with `&ip=<the requesting
   address>`: 57 occurrences in one page. The dump scrubber's `ip=` rule
   covers them.
+- `estimatedResults` is a string on every page, first or further:
+  `"584471"` for the artist, `"0"` for the empty search. The library takes
+  a first page that counts results but holds no `videoRenderer` as a sign
+  that the results moved into a renderer it does not read, and fails it
+  with `Parse` rather than report nothing found.
+
+Read in the M3 review of yt-dlp's `_search_results` and its helpers, not
+probed again:
+
+- **What yt-dlp does that the library deliberately does not.** Before
+  searching, yt-dlp downloads www.youtube.com's ytcfg (`_download_ytcfg`;
+  only `--extractor-args youtube:skip=webpage` skips it) and builds the
+  request from the page's `INNERTUBE_CONTEXT`, so its context carries more
+  client fields than the bare one above, the page's visitor data among
+  them. The library fetches no page for a search: YouTube answered the bare
+  request on 2026-10-01, and the page would cost as much as the search. It
+  sends the visitor data a resolve has cached, when there is some.
+- **Visitor data across pages.** yt-dlp sends the previous page's
+  `responseContext.visitorData` as `X-Goog-Visitor-Id` on page 2 and later.
+  The library does the same when it has no cached visitor data, after the
+  same check the watch page's value passes (`src/visitor_data.h`), and does
+  not cache it.
+- **Length.** When a `videoRenderer` has no `lengthText`, yt-dlp reads the
+  text of its `thumbnailOverlays[].thumbnailOverlayTimeStatusRenderer`; so
+  does the library, taking the first.
+- **Continuation.** yt-dlp also finds a page's continuation inside an item
+  section's own `contents[]`. The library takes the one beside the item
+  sections first, and one inside only when there is none beside.
 
 ### Playlists
 
