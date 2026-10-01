@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -9,15 +10,16 @@
 #include <string_view>
 #include <vector>
 
-// Resolves a YouTube video to direct stream URLs by asking YouTube's
-// InnerTube API what yt-dlp asks it, without YouTube's player JavaScript.
+// Resolves a YouTube video to direct stream URLs, and searches YouTube for
+// videos, by asking YouTube's InnerTube API what yt-dlp asks it, without
+// YouTube's player JavaScript.
 // =======================================================
 // Rules:
 // - No exception crosses this header: every call returns a Result whose
 //   Status says what went wrong, so a C or JNI wrapper need not care.
 // - Every string going in or out is UTF-8, and nothing converts code pages.
 // - One Resolver may be called from several threads at once: the bot
-//   resolves the next song while one plays. The one thing its resolves share
+//   resolves the next song while one plays. The one thing its calls share
 //   is the cached visitor data, behind a mutex that is never held across a
 //   request.
 // - Stream URLs die at VideoInfo::expiresAtUnix and work only from the IP
@@ -112,11 +114,15 @@ struct SearchResult
     bool isUpcoming{false};           // a scheduled premiere or stream, not playable yet
 };
 
+// https://www.youtube.com/watch?v=<videoId>: the page of a search result or
+// a playlist entry, and a valid resolve() target.
+std::string watchUrl(std::string_view videoId);
+
 // Per-call cancellation and deadline. cancelled may be empty. deadline bounds
 // the whole call - the watch page, every client of the ladder and the bot
-// check's second try alike: each request gets the smaller of
-// Options::requestTimeout and what is left of it, and none is sent once it
-// has run out.
+// check's second try alike, or every page of a search: each request gets the
+// smaller of Options::requestTimeout and what is left of it, and none is
+// sent once it has run out.
 struct Request
 {
     std::function<bool()> cancelled;
@@ -141,7 +147,8 @@ public:
         // failure about the client - BotCheck, NoFormats, Http, Parse,
         // PlayerScript - passes the video on to the next; one about the
         // video, the network, the call or the library ends the resolve there.
-        // Empty, or an id the library does not know, is BadInput.
+        // Empty, or an id the library does not know, is BadInput. Only
+        // resolve() climbs it; search() always asks as the web client.
         std::vector<ClientId> clients{ClientId::VisionOS};
         // language goes to YouTube as hl, and YouTube's reasons come back in
         // it. The checks that tell failures apart read English, so with
@@ -154,7 +161,7 @@ public:
         // Called on the resolving thread, so it must cope with several at once.
         // May be empty.
         std::function<void(LogLevel, std::string_view)> log;
-        // Bounds each HTTP request; Request::deadline bounds the whole resolve.
+        // Bounds each HTTP request; Request::deadline bounds the whole call.
         // Zero or less is BadInput.
         std::chrono::milliseconds requestTimeout{std::chrono::seconds{10}};
     };
@@ -165,7 +172,7 @@ public:
     Resolver();
     explicit Resolver(Options options);
     // Movable, so a factory can hand one out; not copyable. A moved-from
-    // Resolver answers every resolve() with BadInput.
+    // Resolver answers every call with BadInput.
     Resolver(Resolver &&other) noexcept;
     Resolver &operator=(Resolver &&other) noexcept;
     ~Resolver();
@@ -185,6 +192,17 @@ public:
     // ladder after earlier clients failed keeps their answers in its
     // message, and an earlier BotCheck outranks a later Network or Timeout.
     Result<VideoInfo> resolve(std::string_view urlOrId, const Request &request = {});
+
+    // Up to max videos for query, best match first; an empty list when
+    // YouTube finds none. One request for the first twenty or so, one more
+    // per further page. Channels, playlists and shelves in the results are
+    // skipped. max of 0, or a query that is empty or all spaces, is BadInput.
+    // Asked as the web client whatever Options::clients says: that list is
+    // the player's ladder. Cached visitor data is sent when there is some,
+    // but none is fetched for a search.
+    // When a later page fails, the result carries that failure and the
+    // videos read so far.
+    Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request = {});
 
 private:
     struct Impl;
