@@ -168,7 +168,11 @@ videos out by itself; the check is for the day it does not.
 playlist does not exist." That is `Unavailable` with the alert's text
 (`textOf(alertRenderer, "text")`). Alerts of other types beside real
 contents (YouTube uses one to say unavailable videos are hidden) are not
-failures.
+failures. Settled in the M4 review: the ERROR alert is looked for in
+whatever renderer an alert holds, as yt-dlp does, and it also makes a first
+page `Unavailable` when the page has a section list but no entries, before
+the rule below and whatever the count says. yt-dlp fails any answer with an
+error alert; the library keeps an answer that has entries to show.
 
 **A layout the reader does not know** must not pass for an empty playlist,
 for the reason M3's search reader fails a first page that counts results it

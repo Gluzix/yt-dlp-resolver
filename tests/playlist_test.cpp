@@ -466,6 +466,38 @@ TEST_CASE("an alert beside real contents is no failure, and an ERROR alert in pl
           == Error::Parse);
 }
 
+TEST_CASE("an ERROR alert beside a section list that holds no entry is Unavailable, whatever renderer holds it")
+{
+    // Hand-written: a renderer name YouTube has not used, a count of 0, and
+    // alerts that are no objects or hold none to read past first.
+    const std::string empty = firstPage("", "No videos");
+    const auto refused = parsePlaylistResponse(
+        R"({"alerts":["x",42,{"plainValue":"y"},{"alertRendererOfTomorrow":)"
+        R"({"type":"ERROR","text":{"simpleText":"Hand-written reason."}}}],)"
+        + empty.substr(1));
+    CHECK(refused.status.code == Error::Unavailable);
+    CHECK(refused.status.message == "Hand-written reason.");
+    CHECK(refused.value.entries.empty());
+
+    // The same alert beside a count above 0: still YouTube's refusal, not Parse.
+    const auto counted = parsePlaylistResponse(
+        R"({"alerts":[{"alertRenderer":{"type":"ERROR","text":{"simpleText":"Hand-written reason."}}}],)"
+        + firstPage("", "12 videos").substr(1));
+    CHECK(counted.status.code == Error::Unavailable);
+
+    // An alert of another kind, in a renderer of any name, beside real entries
+    // is still Ok; and beside none, with a count of 0, an empty playlist.
+    const auto shown = parsePlaylistResponse(
+        R"({"alerts":[{"alertRendererOfTomorrow":{"type":"INFO","text":{"simpleText":"Hidden videos"}}}],)"
+        + firstPage(lockup("aaaaaaaaaaa")).substr(1));
+    REQUIRE(shown);
+    CHECK(idsOf(shown.value.entries) == std::vector<std::string>{"aaaaaaaaaaa"});
+    const auto quiet = parsePlaylistResponse(
+        R"({"alerts":[{"alertRenderer":{"type":"INFO","text":{"simpleText":"Hidden videos"}}}],)" + empty.substr(1));
+    REQUIRE(quiet);
+    CHECK(quiet.value.entries.empty());
+}
+
 TEST_CASE("a first page that counts videos but holds none the library can read is Parse")
 {
     // A playlist as it would look had YouTube moved its entries into a view
@@ -536,6 +568,7 @@ TEST_CASE("an answer that is no playlist response is a Parse failure")
         R"({"onResponseReceivedActions":[{"appendContinuationItemsAction":{}}]})",
         R"({"onResponseReceivedActions":"x"})",
         R"({"alerts":"x"})",
+        R"({"alerts":["x",42,{"alertRenderer":"ERROR"},{"alertRenderer":{"type":"INFO"}}]})",
     };
     for (const char *body : bodies) {
         const std::string text = body;

@@ -37,6 +37,11 @@
 // - Only a video with a valid id and a playable title is an entry: what is
 //   not a video, says it cannot be played, or is titled [Private video] or
 //   [Deleted video] is read past, as the bot filters today.
+// - A first page with no section list or no entry that carries an ERROR
+//   alert, in whatever renderer, is Unavailable with the alert's text:
+//   YouTube's answer for a playlist that does not exist. yt-dlp fails any
+//   answer with an error alert; alerts beside real entries are no failure
+//   here.
 // - A first page with no entry it can read, while the playlist counts
 //   videos, is Parse, not an empty playlist: the entries have moved into a
 //   renderer the library does not know, and "empty" would keep the caller
@@ -74,10 +79,11 @@ struct PlaylistPage
 // count; on a further one, the entries of the first
 //   onResponseReceivedActions[].appendContinuationItemsAction.continuationItems[]
 // (or the same under onResponseReceivedEndpoints); and the continuation
-// among the entries. Pure. A page with no section list that carries an
-// ERROR alert - a playlist that does not exist - is Unavailable with the
-// alert's text. Not JSON, JSON with none of the above, or a first page that
-// counts videos but holds none the library can read, is Parse.
+// among the entries. Pure. A first page with no section list or no entry
+// that carries an ERROR alert - a playlist that does not exist - is
+// Unavailable with the first such alert's text. Not JSON, JSON with none of
+// the above, or a first page that counts videos but holds none the library
+// can read, is Parse.
 Result<PlaylistPage> parsePlaylistResponse(const std::string &body);
 
 // The count at the start of a playlist's stat, as YouTube writes it with

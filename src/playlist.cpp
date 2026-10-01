@@ -268,8 +268,9 @@ std::size_t totalCountOf(const json &root)
 }
 
 // The text of the first ERROR alert, which is how YouTube answers for a
-// playlist that does not exist; empty when there is none. yt-dlp reads any
-// alert renderer; these are the two it names.
+// playlist that does not exist; empty when there is none. Like yt-dlp, it
+// reads whatever renderer an alert holds - alertRenderer,
+// alertWithButtonRenderer or one YouTube names later.
 std::string errorAlert(const json &root)
 {
     const json *alerts = childArray(root, "alerts");
@@ -277,10 +278,13 @@ std::string errorAlert(const json &root)
         return {};
     }
     for (const json &alert : *alerts) {
-        for (const char *key : {"alertRenderer", "alertWithButtonRenderer"}) {
-            const json *renderer = child(alert, key);
-            if (renderer && readString(*renderer, "type") == "ERROR") {
-                std::string text = textOf(*renderer, "text");
+        // A range-for over a JSON primitive would visit the value itself.
+        if (!alert.is_object()) {
+            continue;
+        }
+        for (const json &renderer : alert) {
+            if (renderer.is_object() && readString(renderer, "type") == "ERROR") {
+                std::string text = textOf(renderer, "text");
                 return text.empty() ? std::string("YouTube says the playlist cannot be shown") : text;
             }
         }
@@ -308,9 +312,10 @@ Result<PlaylistPage> readPlaylistResponse(const json &root)
     }
 
     // A playlist that does not exist has no contents and says so in an
-    // ERROR alert: YouTube's words, for the caller to pass on. Alerts beside
-    // real contents - YouTube uses one to say it hides unavailable videos -
-    // are no failure.
+    // ERROR alert: YouTube's words, for the caller to pass on. yt-dlp fails
+    // any answer with an error alert; the library fails one that has no
+    // entries to show for it. Alerts beside real entries - YouTube uses one
+    // to say it hides unavailable videos - are no failure.
     const json *sections = sectionListOf(root);
     if (!sections) {
         std::string alert = errorAlert(root);
@@ -325,6 +330,14 @@ Result<PlaylistPage> readPlaylistResponse(const json &root)
     // item section is never looked at.
     if (const json *items = entriesIn(*sections)) {
         appendEntries(*items, page.entries, page.next);
+    }
+    // A section list with nothing in it and an ERROR alert beside it is
+    // YouTube's refusal, not an empty playlist, whatever the count says.
+    if (page.entries.empty()) {
+        std::string alert = errorAlert(root);
+        if (!alert.empty()) {
+            return {{Error::Unavailable, std::move(alert)}, {}};
+        }
     }
     // YouTube counts videos, yet none is one the library can read: the
     // entries have moved into a renderer it does not know. Saying "empty"
