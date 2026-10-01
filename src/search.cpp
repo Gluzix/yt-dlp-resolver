@@ -2,6 +2,7 @@
 
 #include "json_read.h"
 #include "url_parse.h"
+#include "visitor_data.h"
 
 #include <nlohmann/json.hpp>
 
@@ -160,6 +161,13 @@ Result<SearchPage> readSearchResponse(const json &root)
     }
     if (page.next.token.empty()) {
         page.next = std::move(inside);
+    }
+    // The visitor YouTube took the caller for, which yt-dlp sends with the
+    // next page; only when it may travel as a header.
+    const json *responseContext = child(root, "responseContext");
+    std::string visitorData = responseContext ? readString(*responseContext, "visitorData") : std::string{};
+    if (visitorDataRefusal(visitorData).empty()) {
+        page.visitorData = std::move(visitorData);
     }
     // YouTube counts results, yet none is a video the library can read: the
     // results have moved into a renderer it does not know. Saying "nothing

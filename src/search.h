@@ -17,6 +17,8 @@
 // - searchRequest() sends what yt-dlp sends: the client's context, the
 //   query and the videos-only filter, and for a further page the same again
 //   with the continuation added.
+// - A page's visitor data is read under the same rule as the watch page's
+//   before it can become the next page's X-Goog-Visitor-Id.
 // - Only a videoRenderer is a result. The videos-only filter still lets a
 //   channel through for an artist's name, and an empty search holds a
 //   promo; both are read past, as are shelves and whatever YouTube adds.
@@ -41,6 +43,10 @@ struct SearchPage
 {
     std::vector<SearchResult> results;  // in YouTube's order, best match first
     Continuation next;                  // no token on the last page
+    // responseContext.visitorData, which yt-dlp sends with the next page;
+    // empty when the page has none, or none that may go out as a header
+    // (visitor_data.h).
+    std::string visitorData;
 };
 
 // Reads one answer of /youtubei/v1/search, a first page or a continuation:

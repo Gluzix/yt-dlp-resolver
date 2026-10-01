@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -113,6 +114,12 @@ std::string video(const std::string &videoId, const std::string &extra = {})
     return R"({"videoRenderer":{"videoId":")" + videoId
          + R"(","title":{"runs":[{"text":"T"}]},"ownerText":{"runs":[{"text":"A"}]},"lengthText":{"simpleText":"1:00"})"
          + extra + "}}";
+}
+
+// page, an object, with a responseContext.visitorData of the JSON value given.
+std::string withVisitorData(const std::string &value, const std::string &page)
+{
+    return R"({"responseContext":{"visitorData":)" + value + "}," + page.substr(1);
 }
 
 }
@@ -463,6 +470,63 @@ TEST_CASE("a continuation inside an item section serves when none sits beside th
     CHECK(both.value.next.token == "BESIDE");
 }
 
+TEST_CASE("a search page names the visitor YouTube took the caller for, when it may go out as a header")
+{
+    const auto recorded = parseSearchResponse(readFixture("search_videos.json"));
+    REQUIRE(recorded);
+    CHECK(recorded.value.visitorData == "FIXTURE");
+
+    const std::string page = firstPage(section(video("aaaaaaaaaaa")));
+    const auto without = parseSearchResponse(page);
+    REQUIRE(without);
+    CHECK(without.value.visitorData.empty());
+    const auto fit = parseSearchResponse(withVisitorData(R"("CgtGSVhUVVJF%3D%3D")", page));
+    REQUIRE(fit);
+    CHECK(fit.value.visitorData == "CgtGSVhUVVJF%3D%3D");
+
+    // The watch page's rule: never a value that could not travel as a header.
+    const std::string refused[] = {R"("bad value")", R"("CgtG\r\nX-Injected: 1")", R"("")", "42",
+                                   "\"" + std::string(4097, 'A') + "\""};
+    for (const std::string &value : refused) {
+        CAPTURE(value);
+        const auto parsed = parseSearchResponse(withVisitorData(value, page));
+        REQUIRE(parsed);
+        CHECK(parsed.value.visitorData.empty());
+        CHECK(parsed.value.results.size() == 1);
+    }
+}
+
+TEST_CASE("with no visitor data cached, a later search page carries what the page before it named, as yt-dlp sends it")
+{
+    TestResolver test;
+    test.http->apiBodies["search"] = {readFixture("search_videos.json"), readFixture("search_continuation.json")};
+    REQUIRE(test.resolver.search(artist(), 6));
+    REQUIRE(test.http->requests.size() == 2);
+    CHECK(headerValue(test.http->requests[0], "X-Goog-Visitor-Id").empty());
+    CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id") == "FIXTURE");
+    CHECK(json::parse(test.http->requests[1].body)["context"]["client"]["visitorData"] == "FIXTURE");
+
+    // It stays out of the cache: the next resolve still fetches a watch page.
+    REQUIRE(test.resolver.resolve("dQw4w9WgXcQ"));
+    REQUIRE(test.http->requests.size() == 4);
+    CHECK(test.http->requests[2].method == "GET");
+    CHECK(headerValue(test.http->requests[3], "X-Goog-Visitor-Id") == VISITOR_DATA);
+}
+
+TEST_CASE("with visitor data cached, every search page carries the cached one")
+{
+    TestResolver test;
+    REQUIRE(test.resolver.resolve("dQw4w9WgXcQ")); // the watch page, the player
+    test.http->apiBodies["search"] = {readFixture("search_videos.json"), readFixture("search_continuation.json")};
+    REQUIRE(test.resolver.search(artist(), 6));
+    REQUIRE(test.http->requests.size() == 4);
+    for (std::size_t i = 2; i < 4; ++i) {
+        CAPTURE(i);
+        CHECK(headerValue(test.http->requests[i], "X-Goog-Visitor-Id") == VISITOR_DATA);
+        CHECK(json::parse(test.http->requests[i].body)["context"]["client"]["visitorData"] == VISITOR_DATA);
+    }
+}
+
 TEST_CASE("an answer that is no search response is a Parse failure")
 {
     const char *const bodies[] = {
@@ -521,7 +585,8 @@ TEST_CASE("a search past the first page sends its continuation, and stops once i
     REQUIRE(first);
     const ytres::HttpRequest &second = test.http->requests[1];
     CHECK(second.url == SEARCH_URL);
-    CHECK(second.body == searchRequest(webClient(), artist(), "en", "", first.value.next).body);
+    // With nothing cached, page one's visitor data goes along too.
+    CHECK(second.body == searchRequest(webClient(), artist(), "en", first.value.visitorData, first.value.next).body);
     json body = json::parse(second.body);
     CHECK(body["query"] == artist());
     CHECK(body["params"] == "EgIQAfABAQ==");
