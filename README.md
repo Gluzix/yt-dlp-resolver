@@ -172,9 +172,12 @@ The search pages are cut down to a few results each.
 video in the corpus and checks that each gets the code the corpus expects,
 checks that a warm resolve is one request, cancels a request to the
 unroutable 10.255.255.1 and a live resolve at 100 ms and wants both back
-within 200 ms, and walks the client ladder from `web` to `visionos`. It is
-built with everything else but never added to `ctest`, since it needs the
-network and YouTube changes under it:
+within 200 ms, walks the client ladder from `web` to `visionos`, and
+searches once ("Rick Astley", five videos) and wants each result to carry
+a valid id, a title and a channel. That search is what notices YouTube
+changing the shape of its search answer: the offline tests only replay the
+answers recorded on 2026-10-01. It is built with everything else but never
+added to `ctest`, since it needs the network and YouTube changes under it:
 
 ```
 build\tests\Debug\ytres_live_tests.exe
