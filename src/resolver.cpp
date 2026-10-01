@@ -32,9 +32,10 @@ const size_t ERROR_EXCERPT_BYTES = 200;
 const int MAX_SEARCH_PAGES = 10;
 
 // A playlist reads no more pages than this, whatever max asks for: twenty
-// thousand videos, more than any playlist YouTube lets anyone make. With a
-// token that repeats, it is one of the two stops yt-dlp's _entries has for
-// a feed that loops.
+// thousand videos. An ordinary playlist holds fewer, but a channel's uploads
+// (UU...) can hold more, and those stop here with a warning. The library's
+// own stop for a feed that hands out fresh tokens for ever; yt-dlp's
+// _entries has only the other, a token that repeats.
 const int MAX_PLAYLIST_PAGES = 200;
 
 std::int64_t nowUnix()
@@ -418,9 +419,15 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
             list.entries.push_back(std::move(entry));
         }
         // Unlike a search, a page that brought no entry may still lead on:
-        // it can hold nothing but videos nobody may watch. The two guards
-        // below stop a feed that loops instead.
-        if (list.entries.size() >= max || page.value.next.token.empty() || pageNumber >= MAX_PLAYLIST_PAGES) {
+        // it can hold nothing but videos nobody may watch. The guards below
+        // stop a feed that loops instead.
+        if (list.entries.size() >= max || page.value.next.token.empty()) {
+            break;
+        }
+        // A list this long is cut, not finished: the caller must hear of it.
+        if (pageNumber >= MAX_PLAYLIST_PAGES) {
+            log(LogLevel::Warning, "The playlist " + list.playlistId + " runs past " + std::to_string(MAX_PLAYLIST_PAGES)
+                                       + " pages; stopping with " + std::to_string(list.entries.size()) + " videos");
             break;
         }
         // A token sent before would fetch a page read before, and the one

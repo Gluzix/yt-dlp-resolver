@@ -657,6 +657,8 @@ TEST_CASE("a playlist reads two hundred pages at most, whatever max asks for")
     REQUIRE(list);
     CHECK(test.http->requests.size() == 200);
     CHECK(list.value.entries.size() == 200);
+    // Cut, not finished, and the log says so.
+    CHECK(test.logLine(ytres::LogLevel::Warning, "runs past 200 pages; stopping with 200 videos") != nullptr);
 }
 
 TEST_CASE("a playlist that does not exist is Unavailable, in YouTube's words, after one request")

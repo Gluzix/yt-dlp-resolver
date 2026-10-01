@@ -99,8 +99,10 @@ starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL` or `PU`. Like a search it
 asks as the `web` client, sends the visitor data a resolve has cached and
 fetches none of its own. YouTube sends a hundred videos a page, and the
 library asks for no more pages than `max` needs: the first 50 videos of a
-6000-video playlist cost one request. It hides unavailable videos itself,
-and the library drops any it lists anyway (`[Private video]`,
+6000-video playlist cost one request. It reads 200 pages at most, so a list
+longer than 20,000 videos (a big channel's uploads, `UU...`) comes back Ok
+but cut there, with a warning in the log. YouTube hides unavailable videos
+itself, and the library drops any it lists anyway (`[Private video]`,
 `[Deleted video]`, no title), so `entries` may hold fewer than
 `totalCount`. A playlist that does not exist is `Unavailable`, with
 YouTube's words; a mix (`RD...`), Watch Later, Liked videos and the other
