@@ -61,10 +61,60 @@ const char *const BROWSER_USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 
 const char *const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+// apiRequest()'s url is this, the endpoint, then API_QUERY.
+const char *const API_BASE_URL = "https://www.youtube.com/youtubei/v1/";
+const char *const API_QUERY = "?prettyPrint=false";
 const char *const ORIGIN = "https://www.youtube.com";
 
 // yt-dlp reads on past these; every other status is a failure.
 const std::string_view ACCEPTED_STATUSES[] = {"OK", "LIVE_STREAM_OFFLINE", "AGE_CHECK_REQUIRED", "AGE_VERIFICATION_REQUIRED"};
+
+// context.client of every InnerTube request: the client's row, then what
+// yt-dlp's _extract_context forces onto every client, then the visitor data
+// when there is some. ordered_json keeps yt-dlp's key order, so the body
+// reads like the one in the notes.
+ordered_json clientContext(const ClientDef &client, const std::string &language, const std::string &visitorData)
+{
+    ordered_json context = ordered_json::object();
+    const std::pair<const char *, const char *> rowFields[] = {
+        {"clientName", client.clientName},
+        {"clientVersion", client.clientVersion},
+        {"deviceMake", client.deviceMake},
+        {"deviceModel", client.deviceModel},
+        {"userAgent", client.userAgent},
+        {"osName", client.osName},
+        {"osVersion", client.osVersion},
+    };
+    for (const auto &[key, value] : rowFields) {
+        if (value) {
+            context[key] = value;
+        }
+    }
+    context["hl"] = language;
+    context["timeZone"] = "UTC";
+    context["utcOffsetMinutes"] = 0;
+    if (!visitorData.empty()) {
+        context["visitorData"] = visitorData;
+    }
+    return context;
+}
+
+// The headers of every InnerTube request, X-Goog-Visitor-Id only when there
+// is visitor data: yt-dlp drops the header rather than send it empty.
+std::vector<std::pair<std::string, std::string>> apiHeaders(const ClientDef &client, const std::string &visitorData)
+{
+    std::vector<std::pair<std::string, std::string>> headers = {
+        {"Content-Type", "application/json"},
+        {"X-YouTube-Client-Name", std::to_string(client.contextClientName)},
+        {"X-YouTube-Client-Version", client.clientVersion},
+        {"Origin", ORIGIN},
+        {"User-Agent", userAgentHeader(client)},
+    };
+    if (!visitorData.empty()) {
+        headers.emplace_back("X-Goog-Visitor-Id", visitorData);
+    }
+    return headers;
+}
 
 // audio/webm; codecs="opus" -> opus. A muxed format lists both codecs.
 std::string codecsOf(const std::string &mimeType)
@@ -344,33 +394,8 @@ const char *userAgentHeader(const ClientDef &client)
 HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, const std::string &language,
                           const std::string &visitorData)
 {
-    // ordered_json keeps yt-dlp's key order, so the body reads like the one
-    // in the notes.
-    ordered_json clientContext = ordered_json::object();
-    const std::pair<const char *, const char *> fields[] = {
-        {"clientName", client.clientName},
-        {"clientVersion", client.clientVersion},
-        {"deviceMake", client.deviceMake},
-        {"deviceModel", client.deviceModel},
-        {"userAgent", client.userAgent},
-        {"osName", client.osName},
-        {"osVersion", client.osVersion},
-    };
-    for (const auto &[key, value] : fields) {
-        if (value) {
-            clientContext[key] = value;
-        }
-    }
-    // yt-dlp's _extract_context forces these three onto every client.
-    clientContext["hl"] = language;
-    clientContext["timeZone"] = "UTC";
-    clientContext["utcOffsetMinutes"] = 0;
-    if (!visitorData.empty()) {
-        clientContext["visitorData"] = visitorData;
-    }
-
     ordered_json body = ordered_json::object();
-    body["context"]["client"] = std::move(clientContext);
+    body["context"]["client"] = clientContext(client, language, visitorData);
     body["videoId"] = videoId;
     body["playbackContext"]["contentPlaybackContext"]["html5Preference"] = "HTML5_PREF_WANTS";
     body["contentCheckOk"] = true;
@@ -381,16 +406,27 @@ HttpRequest playerRequest(const ClientDef &client, const std::string &videoId, c
     request.url = PLAYER_URL;
     // A caller's language in broken UTF-8 gets replaced rather than thrown over.
     request.body = body.dump(-1, ' ', false, ordered_json::error_handler_t::replace);
-    request.headers = {
-        {"Content-Type", "application/json"},
-        {"X-YouTube-Client-Name", std::to_string(client.contextClientName)},
-        {"X-YouTube-Client-Version", client.clientVersion},
-        {"Origin", ORIGIN},
-        {"User-Agent", userAgentHeader(client)},
-    };
-    if (!visitorData.empty()) {
-        request.headers.emplace_back("X-Goog-Visitor-Id", visitorData);
+    request.headers = apiHeaders(client, visitorData);
+    return request;
+}
+
+HttpRequest apiRequest(const ClientDef &client, const char *endpoint, const std::string &language,
+                       const std::string &visitorData, const ordered_json &fields)
+{
+    ordered_json body = ordered_json::object();
+    body["context"]["client"] = clientContext(client, language, visitorData);
+    if (fields.is_object()) {
+        for (auto field = fields.begin(); field != fields.end(); ++field) {
+            body[field.key()] = field.value();
+        }
     }
+
+    HttpRequest request;
+    request.method = "POST";
+    request.url = std::string(API_BASE_URL) + endpoint + API_QUERY;
+    // A query or a language in broken UTF-8 gets replaced rather than thrown over.
+    request.body = body.dump(-1, ' ', false, ordered_json::error_handler_t::replace);
+    request.headers = apiHeaders(client, visitorData);
     return request;
 }
 
