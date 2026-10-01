@@ -1,6 +1,8 @@
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
+#include <charconv>
+#include <cstddef>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -9,14 +11,19 @@
 #include <regex>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 // Development harness for the ytres library - a test rig, not the product.
 // =======================================================
 // Rules:
 // - By default stdout gets exactly three lines - title, canonical page url,
-//   best-audio url - the ones the bot reads from yt-dlp today. Every failure
-//   goes to stderr as "<Error>: <message>" with exit code 1.
+//   best-audio url - the ones the bot reads from yt-dlp today. With
+//   --search it gets one line per video instead: page url, seconds (or
+//   "live" or "upcoming"), channel and title, separated by tabs. Every
+//   failure goes to stderr as "<Error>: <message>" with exit code 1; a
+//   search that fails on a later page prints the videos it read first.
 // - Titles go out as the library's UTF-8, byte for byte: no code page
 //   conversion here either.
 // - A --dump is a fixture to commit, so scrubbed() takes out what identifies
@@ -25,7 +32,11 @@
 
 namespace {
 
-const char *const USAGE = "usage: ytres_cli <url-or-id> [--formats] [--dump <file>] [--client visionos|web]\n";
+const char *const USAGE = "usage: ytres_cli <url-or-id> [--formats] [--dump <file>] [--client visionos|web]\n"
+                          "       ytres_cli --search <query> [--max N] [--dump <file>]\n";
+
+// How many videos --search lists when --max does not say.
+const std::size_t DEFAULT_SEARCH_MAX = 5;
 
 // What --client takes: yt-dlp's names for the clients, as the library's
 // table keeps them.
@@ -66,8 +77,9 @@ const char *trackName(ytres::Track kind)
     return "?";
 }
 
-// Wraps the built-in client and keeps the last player response, for
-// --dump: the Resolver hands out parsed results only.
+// Wraps the built-in client and keeps the last player response and the
+// first search response, for --dump: the Resolver hands out parsed results
+// only. The first search page, because that is what a fixture records.
 class RecordingHttpClient : public ytres::HttpClient
 {
 public:
@@ -81,14 +93,20 @@ public:
         ytres::Result<ytres::HttpResponse> response = inner->send(request);
         if (request.url.find("/youtubei/v1/player") != std::string::npos) {
             playerResponse = response.value.body;
+        } else if (request.url.find("/youtubei/v1/search") != std::string::npos && !searchRecorded) {
+            searchResponse = response.value.body;
+            searchRecorded = true;
         }
         return response;
     }
 
-    std::string playerResponse; // unguarded: the harness resolves once, on one thread
+    // Unguarded: the harness makes one call, on one thread.
+    std::string playerResponse;
+    std::string searchResponse;
 
 private:
     std::shared_ptr<ytres::HttpClient> inner;
+    bool searchRecorded{false};
 };
 
 struct Arguments
@@ -97,6 +115,8 @@ struct Arguments
     bool formats{false};
     std::string dumpPath;
     std::optional<ytres::ClientId> client; // the library's own ladder when empty
+    std::optional<std::string> query;      // --search: a search instead of a resolve
+    std::optional<std::size_t> max;        // --search's --max; DEFAULT_SEARCH_MAX when empty
 };
 
 std::optional<ytres::ClientId> clientNamed(std::string_view name)
@@ -107,6 +127,18 @@ std::optional<ytres::ClientId> clientNamed(std::string_view name)
         }
     }
     return std::nullopt;
+}
+
+// --max's count: decimal digits and nothing else. 0 goes through, for the
+// library to answer.
+std::optional<std::size_t> countIn(std::string_view text)
+{
+    std::size_t count = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), count);
+    if (text.empty() || error != std::errc() || end != text.data() + text.size()) {
+        return std::nullopt;
+    }
+    return count;
 }
 
 bool parseArguments(int argc, char **argv, Arguments &args)
@@ -128,13 +160,31 @@ bool parseArguments(int argc, char **argv, Arguments &args)
             if (!args.client) {
                 return false;
             }
+        } else if (arg == "--search") {
+            if (++i >= argc || args.query) {
+                return false;
+            }
+            args.query = argv[i];
+        } else if (arg == "--max") {
+            if (++i >= argc) {
+                return false;
+            }
+            args.max = countIn(argv[i]);
+            if (!args.max) {
+                return false;
+            }
         } else if (arg.rfind("--", 0) == 0 || !args.target.empty()) {
             return false;
         } else {
             args.target = arg;
         }
     }
-    return !args.target.empty();
+    // Exactly one of a target and a search. --formats and --client are about
+    // a resolve, --max about a search.
+    if (args.query) {
+        return args.target.empty() && !args.formats && !args.client;
+    }
+    return !args.target.empty() && !args.max;
 }
 
 // Every stream url names the requesting address: ?ip=/&ip= in queries,
@@ -173,6 +223,42 @@ void printFormats(const ytres::VideoInfo &info)
     }
 }
 
+// --search's length column: the seconds, or what stands in for them.
+std::string lengthOf(const ytres::SearchResult &result)
+{
+    if (result.isLive) {
+        return "live";
+    }
+    if (result.isUpcoming) {
+        return "upcoming";
+    }
+    return std::to_string(result.durationSeconds);
+}
+
+// --search: one line per video, then the failure, if any.
+int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, const Arguments &args)
+{
+    const ytres::Result<std::vector<ytres::SearchResult>> found =
+        resolver.search(*args.query, args.max.value_or(DEFAULT_SEARCH_MAX));
+
+    // Written before the verdict, as for a resolve.
+    if (!args.dumpPath.empty() && !recorder.searchResponse.empty()
+        && !writeFile(args.dumpPath, scrubbed(recorder.searchResponse))) {
+        std::cerr << "Cannot write " << args.dumpPath << '\n';
+        return 1;
+    }
+    // A later page's failure leaves the videos read before it: they go out too.
+    for (const ytres::SearchResult &result : found.value) {
+        std::cout << ytres::watchUrl(result.videoId) << '\t' << lengthOf(result) << '\t' << result.author << '\t'
+                  << result.title << '\n';
+    }
+    if (!found) {
+        std::cerr << errorName(found.status.code) << ": " << found.status.message << '\n';
+        return 1;
+    }
+    return 0;
+}
+
 }
 
 int main(int argc, char **argv)
@@ -195,6 +281,9 @@ int main(int argc, char **argv)
         }
     };
     ytres::Resolver resolver(std::move(options));
+    if (args.query) {
+        return runSearch(resolver, *recorder, args);
+    }
     const ytres::Result<ytres::VideoInfo> result = resolver.resolve(args.target);
 
     // Written before the verdict: an unavailable video's answer is a fixture too.
