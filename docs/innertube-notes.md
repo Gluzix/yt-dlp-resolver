@@ -371,6 +371,11 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
   there are more, a `continuationItemViewModel`. No `playlistVideoListRenderer`
   anywhere. yt-dlp handles both (`_extract_lockup_view_model`,
   `continuationItemViewModel` in `_extract_continuation`).
+- Read from the recorded fixtures on 2026-10-01: the item section that holds
+  the entries has the playlist id as its `targetId`, as has a further page's
+  `appendContinuationItemsAction`, and each `lockupViewModel`'s
+  `rendererContext.commandContext.onTap.innertubeCommand.watchEndpoint.playlistId`
+  is the playlist id too.
 - A `lockupViewModel` for a video: `contentType` is
   `LOCKUP_CONTENT_TYPE_VIDEO`, `contentId` is the video id, the title is at
   `metadata.lockupMetadataViewModel.title.content`, and the duration text

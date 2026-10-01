@@ -198,11 +198,36 @@ const json *sectionListOf(const json &root)
     return nullptr;
 }
 
-// The array a first page's entries are in: the contents[] of the first item
-// section of the section list, or, in the old layout, the contents[] of the
-// playlistVideoListRenderer inside it. Null when there is no item section.
-const json *entriesIn(const json &sections)
+// Whether items hold an entry of either layout, playable or not: an object
+// under lockupViewModel or playlistVideoRenderer.
+bool holdsEntry(const json &items)
 {
+    for (const json &item : items) {
+        if (child(item, "lockupViewModel") || child(item, "playlistVideoRenderer")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The array a first page's entries are in, among the item sections of its
+// section list. Every page probed held one, but should YouTube put another
+// ahead of the playlist's own - a shelf of other videos, say - its cards
+// must not pass for the playlist's entries. So, in this order:
+//   a. the contents[] of a playlistVideoListRenderer in an item section: the
+//      old layout, whose list holds the playlist's entries and nothing else;
+//   b. when playlistId is not empty, the contents[] of the item section
+//      whose targetId is playlistId, as both recorded first pages mark the
+//      one that holds their entries;
+//   c. the contents[] of the first item section that holds an entry;
+//   d. the contents[] of the first item section: an empty playlist, or a
+//      layout the reader does not know, which the Parse rule then judges.
+// Null when there is no item section.
+const json *entriesIn(const json &sections, const std::string &playlistId)
+{
+    const json *targeted = nullptr;
+    const json *withEntry = nullptr;
+    const json *firstItems = nullptr;
     for (const json &section : sections) {
         const json *itemSection = child(section, "itemSectionRenderer");
         const json *items = itemSection ? childArray(*itemSection, "contents") : nullptr;
@@ -213,12 +238,23 @@ const json *entriesIn(const json &sections)
             const json *list = child(item, "playlistVideoListRenderer");
             const json *listItems = list ? childArray(*list, "contents") : nullptr;
             if (listItems) {
-                return listItems;
+                return listItems; // a
             }
         }
-        return items;
+        if (!targeted && !playlistId.empty() && readString(*itemSection, "targetId") == playlistId) {
+            targeted = items;
+        }
+        if (!withEntry && holdsEntry(*items)) {
+            withEntry = items;
+        }
+        if (!firstItems) {
+            firstItems = items;
+        }
     }
-    return nullptr;
+    if (targeted) {
+        return targeted; // b
+    }
+    return withEntry ? withEntry : firstItems; // c, else d
 }
 
 // The playlist's title: the metadata's, else the old header's, else the page
@@ -292,7 +328,7 @@ std::string errorAlert(const json &root)
     return {};
 }
 
-Result<PlaylistPage> readPlaylistResponse(const json &root)
+Result<PlaylistPage> readPlaylistResponse(const json &root, const std::string &playlistId)
 {
     PlaylistPage page;
     // The visitor YouTube took the caller for, which yt-dlp sends with the
@@ -327,8 +363,9 @@ Result<PlaylistPage> readPlaylistResponse(const json &root)
     page.title = titleOf(root);
     page.totalCount = totalCountOf(root);
     // The continuation to follow is among the entries; the one beside the
-    // item section is never looked at.
-    if (const json *items = entriesIn(*sections)) {
+    // item section is never looked at. The playlist asked for, when named,
+    // picks its own item section from any other.
+    if (const json *items = entriesIn(*sections, playlistId)) {
         appendEntries(*items, page.entries, page.next);
     }
     // A section list with nothing in it and an ERROR alert beside it is
@@ -365,7 +402,7 @@ HttpRequest playlistRequest(const ClientDef &client, const std::string &playlist
     return apiRequest(client, "browse", language, visitorData, fields);
 }
 
-Result<PlaylistPage> parsePlaylistResponse(const std::string &body)
+Result<PlaylistPage> parsePlaylistResponse(const std::string &body, const std::string &playlistId)
 {
     const json root = json::parse(body, nullptr, false);
     if (root.is_discarded() || !root.is_object()) {
@@ -373,7 +410,7 @@ Result<PlaylistPage> parsePlaylistResponse(const std::string &body)
     }
     // The reads check types as they go; this is the net under them.
     try {
-        return readPlaylistResponse(root);
+        return readPlaylistResponse(root, playlistId);
     } catch (const json::exception &e) {
         return {{Error::Parse, std::string("The playlist response has an unexpected shape: ") + e.what()}, {}};
     }

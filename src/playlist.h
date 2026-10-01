@@ -27,6 +27,14 @@
 //   entries, in which every playlist probed on 2026-10-01 came, and the
 //   playlistVideoRenderer entries of a playlistVideoListRenderer, which
 //   yt-dlp still reads.
+// - A first page's entries are in one item section of its section list:
+//   the one with a playlistVideoListRenderer in it (the old layout); else,
+//   when the caller names the playlist, the one whose targetId is its id,
+//   as both recorded first pages mark theirs; else the first that holds an
+//   entry; else the first, which the rules below judge. Every page probed
+//   held one item section, but should YouTube put another ahead of it - a
+//   shelf of other videos - those cards must not pass for the playlist's
+//   entries. The Resolver names the playlist on every page.
 // - The continuation to follow is the one among the entries, in the same
 //   array. A first page holds a second one beside its item section, which
 //   loads something else and is never followed: the opposite of a search,
@@ -73,18 +81,21 @@ struct PlaylistPage
 };
 
 // Reads one answer of /youtubei/v1/browse for a playlist, a first page or a
-// continuation: on a first page, the entries in the first item section of
+// continuation: on a first page, the entries in the item section of
 //   contents.twoColumnBrowseResultsRenderer.tabs[].tabRenderer.content.sectionListRenderer.contents[]
-// (or in the playlistVideoListRenderer inside it), with the title and the
-// count; on a further one, the entries of the first
+// that the rule above picks (or in the playlistVideoListRenderer inside
+// it), with the title and the count; on a further one, the entries of the
+// first
 //   onResponseReceivedActions[].appendContinuationItemsAction.continuationItems[]
 // (or the same under onResponseReceivedEndpoints); and the continuation
-// among the entries. Pure. A first page with no section list or no entry
-// that carries an ERROR alert - a playlist that does not exist - is
-// Unavailable with the first such alert's text. Not JSON, JSON with none of
-// the above, or a first page that counts videos but holds none the library
-// can read, is Parse.
-Result<PlaylistPage> parsePlaylistResponse(const std::string &body);
+// among the entries. playlistId, when not empty, is the playlist asked for:
+// on a first page it picks the item section whose targetId it is, as the
+// rule above says, and a further page is read without it. Pure. A first
+// page with no section list or no entry that carries an ERROR alert - a
+// playlist that does not exist - is Unavailable with the first such alert's
+// text. Not JSON, JSON with none of the above, or a first page that counts
+// videos but holds none the library can read, is Parse.
+Result<PlaylistPage> parsePlaylistResponse(const std::string &body, const std::string &playlistId = {});
 
 // The count at the start of a playlist's stat, as YouTube writes it with
 // hl=en: "447 episodes" is 447, "6,000 videos" 6000, "No videos" 0. The

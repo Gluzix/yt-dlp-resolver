@@ -142,6 +142,33 @@ std::string oldLayoutPage()
            R"("numVideosText":{"runs":[{"text":"3"},{"text":" videos"}]}}}})";
 }
 
+// An item section around items, with a targetId when one is given, as the
+// recorded first pages mark theirs with the playlist id; and a first page
+// whose section list holds the given item sections (from a comma) and,
+// beside them, the continuation firstPage() puts there.
+std::string itemSection(const std::string &items, const std::string &targetId = {})
+{
+    const std::string target = targetId.empty() ? std::string{} : R"(,"targetId":")" + targetId + R"(")";
+    return R"({"itemSectionRenderer":{"contents":[)" + items + "]" + target + "}}";
+}
+
+std::string sectionsPage(const std::string &sections)
+{
+    return R"({"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":)"
+           R"({"contents":[)"
+         + sections + "," + continuationItem("BESIDE") + "]}}}}]}}}";
+}
+
+// A first page with a shelf of two other videos ahead of the long
+// playlist's own two, the shelf with shelfTarget as its targetId when one is
+// given: what the M4 review feared YouTube might send. Synthetic; every page
+// probed held one item section.
+std::string shelfFirstPage(const std::string &shelfTarget = {})
+{
+    return sectionsPage(itemSection(lockup("aaaaaaaaaaa") + "," + lockup("bbbbbbbbbbb"), shelfTarget) + ","
+                        + itemSection(lockup("ccccccccccc") + "," + lockup("ddddddddddd"), LONG_PLAYLIST));
+}
+
 }
 
 // ---- which playlist ----
@@ -384,6 +411,64 @@ TEST_CASE("the old layout: entries in a playlistVideoListRenderer, the title and
     CHECK(further.value.entries[0].videoId == "eeeeeeeeeee");
     CHECK(further.value.entries[0].durationSeconds == 30);
     CHECK(further.value.next.token == "OLDER");
+}
+
+TEST_CASE("with the playlist named, its entries are the item section targeted at it, not a shelf ahead of it")
+{
+    // The shelf with no targetId, and with another playlist's.
+    for (const std::string &shelfTarget : {std::string{}, std::string(SMALL_PLAYLIST)}) {
+        CAPTURE(shelfTarget);
+        const auto named = parsePlaylistResponse(shelfFirstPage(shelfTarget), LONG_PLAYLIST);
+        REQUIRE(named);
+        CHECK(idsOf(named.value.entries) == std::vector<std::string>{"ccccccccccc", "ddddddddddd"});
+    }
+
+    // Without the id the reader cannot tell the shelf from the playlist, and
+    // takes the first item section that holds an entry: the shelf. That is
+    // why the Resolver names the playlist on every page.
+    const auto unnamed = parsePlaylistResponse(shelfFirstPage());
+    REQUIRE(unnamed);
+    CHECK(idsOf(unnamed.value.entries) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb"});
+
+    // A further page asks no targetId of its appended items.
+    const auto further = parsePlaylistResponse(furtherPage(lockup("eeeeeeeeeee")), LONG_PLAYLIST);
+    REQUIRE(further);
+    CHECK(idsOf(further.value.entries) == std::vector<std::string>{"eeeeeeeeeee"});
+}
+
+TEST_CASE("with no item section targeted, the first one that holds an entry wins over one that holds none")
+{
+    // Hand-written: a message where a shelf might be, and no targetId anywhere.
+    const std::string page =
+        sectionsPage(itemSection(R"({"messageRenderer":{"text":{"simpleText":"Hand-written note"}}})") + ","
+                     + itemSection(lockup("eeeeeeeeeee") + "," + lockup("fffffffffff")));
+    const auto unnamed = parsePlaylistResponse(page);
+    REQUIRE(unnamed);
+    CHECK(idsOf(unnamed.value.entries) == std::vector<std::string>{"eeeeeeeeeee", "fffffffffff"});
+
+    // A playlist named that no item section is targeted at reads the same.
+    const auto named = parsePlaylistResponse(page, LONG_PLAYLIST);
+    REQUIRE(named);
+    CHECK(idsOf(named.value.entries) == std::vector<std::string>{"eeeeeeeeeee", "fffffffffff"});
+}
+
+TEST_CASE("the old layout's list wins over any item section, targeted or not")
+{
+    const std::string page =
+        sectionsPage(itemSection(lockup("aaaaaaaaaaa"), LONG_PLAYLIST) + ","
+                     + itemSection(R"({"playlistVideoListRenderer":{"contents":[)" + renderer("bbbbbbbbbbb", "Old") + "]}}"));
+    for (const std::string &playlistId : {std::string{}, std::string(LONG_PLAYLIST)}) {
+        CAPTURE(playlistId);
+        const auto chosen = parsePlaylistResponse(page, playlistId);
+        REQUIRE(chosen);
+        CHECK(idsOf(chosen.value.entries) == std::vector<std::string>{"bbbbbbbbbbb"});
+    }
+
+    // The hand-written old layout reads the same with the playlist named.
+    const auto old = parsePlaylistResponse(oldLayoutPage(), LONG_PLAYLIST);
+    REQUIRE(old);
+    CHECK(idsOf(old.value.entries) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb"});
+    CHECK(old.value.next.token == "OLD");
 }
 
 TEST_CASE("what is not a playable video with a valid id is read past, in either layout")
@@ -638,6 +723,16 @@ TEST_CASE("a playlist with no continuation among its entries is one request, wha
     CHECK(list.value.playlistId == SMALL_PLAYLIST);
     CHECK(list.value.totalCount == 7);
     CHECK(list.value.entries.size() == 7);
+    CHECK(test.http->requests.size() == 1);
+}
+
+TEST_CASE("the Resolver names the playlist it asks for, so a shelf ahead of it is not listed")
+{
+    TestResolver test;
+    test.http->apiBodies["browse"] = {shelfFirstPage()};
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 5);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"ccccccccccc", "ddddddddddd"});
     CHECK(test.http->requests.size() == 1);
 }
 

@@ -118,16 +118,29 @@ handles alongside it.
 **Where the entries are.**
 
 - First page: `contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[]`,
-  and in it the first `itemSectionRenderer`; its `contents[]` are
+  and in it an `itemSectionRenderer`, whose `contents[]` are
   - new layout: `lockupViewModel` items, followed by the page's
     `continuationItemViewModel` when there are more;
   - old layout: one `playlistVideoListRenderer`, whose own `contents[]` are
     `playlistVideoRenderer` items followed by a `continuationItemRenderer`.
+
+  Every page probed held one item section, with the playlist id as its
+  `targetId`. Settled in the M4 review, so that another populated section
+  YouTube might put ahead of it (a shelf of other videos) cannot pass for
+  the playlist, the reader takes, in this order: the
+  `playlistVideoListRenderer`'s `contents[]`, in whichever item section it
+  is; the item section whose `targetId` is the playlist id, which
+  `parsePlaylistResponse(body, playlistId)` takes as an optional second
+  argument and the Resolver passes for every page; the first item section
+  that holds a `lockupViewModel` or `playlistVideoRenderer`; else the first
+  item section, which the rule for a layout the reader does not know then
+  judges.
 - Continuation: `onResponseReceivedActions[].appendContinuationItemsAction.continuationItems[]`
   (also look under `onResponseReceivedEndpoints`), holding the same item
   kinds directly. A continuation answer also has a `contents` key, but it is
   a stub with no entries: when the answer has an `appendContinuationItemsAction`,
-  read that and nothing else.
+  read that and nothing else. The action carries the playlist id as its
+  `targetId` too; the reader does not ask for it.
 
 **Which continuation.** The one that is a sibling of the entries, in the same
 array. The `sectionListRenderer.contents[]` of a first page holds a second

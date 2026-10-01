@@ -564,7 +564,10 @@ Result<innertube::PlaylistPage> Resolver::Impl::askPlaylist(const innertube::Cli
     if (response.value.status < 200 || response.value.status >= 300) {
         return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
     }
-    return innertube::parsePlaylistResponse(response.value.body);
+    // The id asked for picks the playlist's own item section on a first
+    // page, should YouTube put another ahead of it; a further page is read
+    // without it.
+    return innertube::parsePlaylistResponse(response.value.body, playlistId);
 }
 
 // Sends one request within what is left of the call's deadline.
