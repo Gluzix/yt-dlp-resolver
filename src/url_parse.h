@@ -19,6 +19,7 @@ bool isVideoId(std::string_view text);
 Result<std::string> parseVideoId(std::string_view urlOrId);
 
 // https://www.youtube.com/watch?v=<id>, the only page url the library reports.
+// The public watchUrl() in ytres.h hands out the same.
 std::string canonicalWatchUrl(std::string_view videoId);
 
 // The value of one query parameter, still percent-encoded; nullopt when the
