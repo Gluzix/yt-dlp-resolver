@@ -237,7 +237,8 @@ public:
     // [Private video] or [Deleted video] should it list one, so entries may
     // be fewer than totalCount says. A list longer than 20,000 videos - a
     // big channel's uploads (UU...) - is cut there, with a warning in the
-    // log, and comes back Ok.
+    // log, and comes back Ok; so does one whose pages bring no video three
+    // times in a row.
     // A playlist that does not exist is Unavailable, with YouTube's words,
     // as is any whose answer is an error alert instead of a playlist. A mix
     // (RD...), Watch Later, Liked videos and the like are BadInput: they

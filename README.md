@@ -101,10 +101,11 @@ fetches none of its own. YouTube sends a hundred videos a page, and the
 library asks for no more pages than `max` needs: the first 50 videos of a
 6000-video playlist cost one request. It reads 200 pages at most, so a list
 longer than 20,000 videos (a big channel's uploads, `UU...`) comes back Ok
-but cut there, with a warning in the log. YouTube hides unavailable videos
-itself, and the library drops any it lists anyway (`[Private video]`,
-`[Deleted video]`, no title), so `entries` may hold fewer than
-`totalCount`. A playlist that does not exist is `Unavailable`, with
+but cut there, with a warning in the log; it also stops, with a warning,
+after three pages in a row that bring no video. YouTube hides unavailable
+videos itself, and the library drops any it lists anyway
+(`[Private video]`, `[Deleted video]`, no title), so `entries` may hold
+fewer than `totalCount`. A playlist that does not exist is `Unavailable`, with
 YouTube's words; a mix (`RD...`), Watch Later, Liked videos and the other
 lists made for one signed-in viewer are `BadInput`, as is `max` of 0. As for
 search, a first page that counts videos but holds none the library can read

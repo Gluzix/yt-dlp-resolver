@@ -623,6 +623,42 @@ TEST_CASE("a page that brought no entry still leads on, unlike a search's")
     CHECK(test.http->requests.size() == 3);
 }
 
+TEST_CASE("three pages in a row that bring no video end the list, each with a fresh token")
+{
+    TestResolver test;
+    test.http->apiBodies["browse"] = {
+        firstPage(lockup("aaaaaaaaaaa") + "," + continuationItem("T1")),
+        furtherPage(continuationItem("T2")),
+        furtherPage(lockup("bbbbbbbbbbb", "[Private video]") + "," + continuationItem("T3")),
+        furtherPage(continuationItem("T4")),
+        furtherPage(lockup("ccccccccccc")), // never asked for
+    };
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 50);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"aaaaaaaaaaa"});
+    CHECK(test.http->requests.size() == 4);
+    CHECK(test.logLine(ytres::LogLevel::Warning, "brought no video on 3 pages in a row; stopping after page 4") != nullptr);
+}
+
+TEST_CASE("a page with a video between empty ones starts the count of empty pages again")
+{
+    TestResolver test;
+    test.http->apiBodies["browse"] = {
+        firstPage(lockup("aaaaaaaaaaa") + "," + continuationItem("T1")),
+        furtherPage(continuationItem("T2")),
+        furtherPage(continuationItem("T3")),
+        furtherPage(lockup("bbbbbbbbbbb") + "," + continuationItem("T4")),
+        furtherPage(continuationItem("T5")),
+        furtherPage(continuationItem("T6")),
+        furtherPage(lockup("ccccccccccc")),
+    };
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 50);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"});
+    CHECK(test.http->requests.size() == 7);
+    CHECK_FALSE(test.logged(ytres::LogLevel::Warning));
+}
+
 TEST_CASE("a playlist whose continuation repeats stops there, with what it read")
 {
     // The second page's token is sent; the third page hands it out again.

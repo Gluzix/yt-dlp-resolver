@@ -192,9 +192,13 @@ The same shape as `Impl::search()`: the shared opening, `max == 0` is
 fewer than `max` entries are held and the page gave a continuation. Two
 guards against a feed that loops: stop when a token repeats, as yt-dlp's
 `_entries` does, and stop after `MAX_PLAYLIST_PAGES` (200), the library's
-own. Truncate to `max` at the end. Title and count come from the first page;
-a failure on a later page returns that failure with the playlist as read so
-far.
+own, with a warning, since a channel's uploads (`UU...`) can run longer. A
+page that brings no entry does not end the list, since it may hold nothing
+but videos nobody may watch; `MAX_EMPTY_PLAYLIST_PAGES` (3) such pages in a
+row do, with a warning, so that a broken feed cannot cost two hundred
+requests. Truncate to `max` at the end. Title and count come from the first
+page; a failure on a later page returns that failure with the playlist as
+read so far.
 
 ## CLI
 

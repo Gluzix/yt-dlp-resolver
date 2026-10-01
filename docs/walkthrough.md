@@ -379,11 +379,14 @@ playlist.
 continuation while short of it, so the first 50 videos of a 6000-video
 playlist cost one request. Two differences. A page that brought no entry
 does not end the list, since it may have held nothing but videos nobody
-may watch. And because a list can run to two hundred pages, two guards
-stop a feed that loops: a continuation token seen before ends it with a
-warning, as in yt-dlp's `_entries`, and page 200 ends it too, a cap of the
-library's own. The title and the count come from page one, and a later
-page's failure comes back with the playlist read so far.
+may watch — but three such pages in a row do, with a warning, so that a
+broken feed cannot spend two hundred requests from the bot's address. And
+because a list can run to two hundred pages, two guards stop a feed that
+loops: a continuation token seen before ends it with a warning, as in
+yt-dlp's `_entries`, and page 200 ends it too, a cap of the library's own,
+also with a warning, since a big channel's uploads (`UU...`) run longer.
+The title and the count come from page one, and a later page's failure
+comes back with the playlist read so far.
 
 *Questions: why does the reader ignore the continuation beside the item
 section, and how would a test notice if it took that one? Why is the count

@@ -38,6 +38,12 @@ const int MAX_SEARCH_PAGES = 10;
 // _entries has only the other, a token that repeats.
 const int MAX_PLAYLIST_PAGES = 200;
 
+// A playlist page with no video on it does not end the list - it may hold
+// nothing but videos nobody may watch - but this many in a row do: a broken
+// feed must not cost two hundred requests from the caller's address. The
+// library's own stop, like the cap above.
+const int MAX_EMPTY_PLAYLIST_PAGES = 3;
+
 std::int64_t nowUnix()
 {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -399,6 +405,7 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
     list.playlistId = playlistId.value;
     innertube::Continuation next;
     std::set<std::string> tokensSent;
+    int emptyPagesInARow = 0;
     for (int pageNumber = 1;; ++pageNumber) {
         Result<innertube::PlaylistPage> page = askPlaylist(*web, list.playlistId, visitorData, next, call);
         // A later page's failure keeps what the pages before it brought: the
@@ -421,6 +428,7 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
         // Unlike a search, a page that brought no entry may still lead on:
         // it can hold nothing but videos nobody may watch. The guards below
         // stop a feed that loops instead.
+        emptyPagesInARow = entries.empty() ? emptyPagesInARow + 1 : 0;
         if (list.entries.size() >= max || page.value.next.token.empty()) {
             break;
         }
@@ -428,6 +436,12 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
         if (pageNumber >= MAX_PLAYLIST_PAGES) {
             log(LogLevel::Warning, "The playlist " + list.playlistId + " runs past " + std::to_string(MAX_PLAYLIST_PAGES)
                                        + " pages; stopping with " + std::to_string(list.entries.size()) + " videos");
+            break;
+        }
+        if (emptyPagesInARow >= MAX_EMPTY_PLAYLIST_PAGES) {
+            log(LogLevel::Warning, "The playlist " + list.playlistId + " brought no video on "
+                                       + std::to_string(emptyPagesInARow) + " pages in a row; stopping after page "
+                                       + std::to_string(pageNumber));
             break;
         }
         // A token sent before would fetch a page read before, and the one
