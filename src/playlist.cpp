@@ -29,8 +29,8 @@ using jsonread::readInt;
 using jsonread::readString;
 using jsonread::textOf;
 
-// A playlist's browse id is its id behind VL, as yt-dlp's tab extractor and
-// _reload_with_unavailable_videos both build it.
+// A playlist's browse id is its id behind VL, as yt-dlp's
+// _reload_with_unavailable_videos builds it.
 const char *const PLAYLIST_BROWSE_PREFIX = "VL";
 
 // The titles YouTube puts in place of a video nobody may watch, which the bot

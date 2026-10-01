@@ -190,10 +190,11 @@ the cache holds nothing. It is never written into the cache.
 The same shape as `Impl::search()`: the shared opening, `max == 0` is
 `BadInput`, `parsePlaylistId()`, the first page, then continuations while
 fewer than `max` entries are held and the page gave a continuation. Two
-guards against a feed that loops, both from yt-dlp's `_entries`: stop when a
-token repeats, and stop after `MAX_PLAYLIST_PAGES` (200). Truncate to `max`
-at the end. Title and count come from the first page; a failure on a later
-page returns that failure with the playlist as read so far.
+guards against a feed that loops: stop when a token repeats, as yt-dlp's
+`_entries` does, and stop after `MAX_PLAYLIST_PAGES` (200), the library's
+own. Truncate to `max` at the end. Title and count come from the first page;
+a failure on a later page returns that failure with the playlist as read so
+far.
 
 ## CLI
 

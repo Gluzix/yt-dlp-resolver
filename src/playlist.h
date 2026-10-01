@@ -16,11 +16,13 @@
 // yt-dlp's _tab.py and probed live.
 // =======================================================
 // Rules:
-// - playlistRequest() sends what yt-dlp sends: the client's context and
-//   browseId VL<playlistId> for the first page; the context and the
-//   continuation alone, with no browseId, for every page after it. No
-//   params: yt-dlp sends wgYCCAA= only to have the unavailable videos listed
-//   too, and the library has no use for them.
+// - playlistRequest() sends, for the first page, the request yt-dlp's
+//   _reload_with_unavailable_videos sends, without its params: the
+//   client's context and browseId VL<playlistId>. yt-dlp itself starts from
+//   the playlist's web page; the library fetches none. Its params,
+//   wgYCCAA=, only have the unavailable videos listed too, which the
+//   library has no use for. Every page after the first is the context and
+//   the continuation alone, with no browseId, as yt-dlp's _entries asks.
 // - YouTube serves two layouts and the reader takes both: lockupViewModel
 //   entries, in which every playlist probed on 2026-10-01 came, and the
 //   playlistVideoRenderer entries of a playlistVideoListRenderer, which

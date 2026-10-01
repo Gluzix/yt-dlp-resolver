@@ -17,9 +17,9 @@ const std::string_view PUBLIC_PLAYLIST_PREFIXES[] = {"PL", "UU", "FL", "OLAK5uy_
 const std::size_t MIN_PLAYLIST_ID_TAIL = 10;
 
 // The rest of _PLAYLIST_ID_RE: lists YouTube makes for one viewer. A mix
-// (RD..., RDMM among them) is generated per viewer, TL... is a viewer's
-// queue, and WL, LL... and LM are a signed-in viewer's Watch Later, Liked
-// videos and liked music. Nobody else can list them.
+// (RD..., RDMM among them) is generated per viewer, and WL, LL... and LM are
+// a signed-in viewer's Watch Later, Liked videos and liked music. TL..., the
+// regex's last prefix, goes with them, as docs/m4-plan.md decides.
 const std::string_view PERSONAL_PLAYLIST_PREFIXES[] = {"RD", "TL", "LL"};
 const std::string_view PERSONAL_PLAYLIST_IDS[] = {"WL", "LM"};
 
