@@ -430,7 +430,7 @@ Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &c
     }
     const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(call.deadline - Clock::now());
     if (timeLeft.count() <= 0) {
-        return {{Error::Timeout, "The resolve ran out of time"}, {}};
+        return {{Error::Timeout, "The call ran out of time"}, {}};
     }
     httpRequest.timeout = std::min(options.requestTimeout, timeLeft);
     httpRequest.cancelled = call.request.cancelled;
