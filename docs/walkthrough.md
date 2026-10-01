@@ -2,14 +2,15 @@
 
 A reading guide to the code on `m2/hardening`, written for the session where
 we go through it together, with section 4 added for M3's search on
-`m3/search`. Read it top to bottom once; then open the files it names and
-read them in the same order. Every section ends with the questions worth
-asking about it, which is where the session will spend its time.
+`m3/search` and section 5 for M4's playlists on `m4/playlists`. Read it top
+to bottom once; then open the files it names and read them in the same
+order. Every section ends with the questions worth asking about it, which
+is where the session will spend its time.
 
 Nothing here is a substitute for `docs/resolver-plan.md` (why the project is
 shaped the way it is), `docs/innertube-notes.md` (the protocol facts),
-`docs/m2-plan.md` (what M2 added) and `docs/m3-plan.md` (what M3 added).
-This is the tour; those are the maps.
+`docs/m2-plan.md` (what M2 added), `docs/m3-plan.md` (what M3 added) and
+`docs/m4-plan.md` (what M4 added). This is the tour; those are the maps.
 
 ## 1. What a "resolve" is
 
@@ -128,7 +129,7 @@ src/visitor_cache.*        step 3
 src/watch_page.*           step 3
 src/innertube.*            steps 4 and 5
 src/format_pick.cpp        step 6
-src/curl_http_client.*     every HTTP request (section 6)
+src/curl_http_client.*     every HTTP request (section 7)
 ```
 
 **Step 0 — the guards.** `Resolver::resolve()` in `resolver.cpp` is a
@@ -147,7 +148,7 @@ The canonical page URL is always rebuilt as `https://www.youtube.com/watch?v=<id
 
 **Step 2 — the ladder.** `Options::clients` (default `{VisionOS}`) becomes a
 vector of pointers into the client table, resolved up front so a bad list
-fails before anything is sent. Section 5 covers how the ladder is walked.
+fails before anything is sent. Section 6 covers how the ladder is walked.
 
 **Step 3 — visitor data.** `visitorDataToSend()` asks the `VisitorCache`.
 If it has a value less than six hours old, that is used and no page is
@@ -175,7 +176,7 @@ would be a bot-killing bug. The order of checks:
 
 1. `playabilityStatus.status` — four statuses are accepted (`OK`,
    `LIVE_STREAM_OFFLINE`, `AGE_CHECK_REQUIRED`, `AGE_VERIFICATION_REQUIRED`);
-   anything else goes to `playabilityFailure()`, section 5.
+   anything else goes to `playabilityFailure()`, section 6.
 2. `videoDetails.videoId` must match, else `Parse`.
 3. The metadata is copied out.
 4. Both format arrays are walked. A format is skipped, with a count kept
@@ -262,7 +263,7 @@ first page's `sectionListRenderer.contents[]`, or a further page's
 `appendContinuationItemsAction.continuationItems[]`. In it sit item
 sections, which hold the results, and *beside* them the continuation, whose
 token fetches the next page (`continuationOf()` reads it; it knows the
-three shapes YouTube uses, so playlists in M4 can reuse it). Like yt-dlp,
+three shapes YouTube uses, so playlists reuse it in section 5). Like yt-dlp,
 the reader also accepts a continuation inside an item section when there is
 none beside. Inside an item section only a `videoRenderer` counts: the
 videos-only filter still puts an artist's *channel* first, which is exactly
@@ -296,7 +297,100 @@ apply only to a first page? Which test layer would notice the change itself
 (`ytres_live_tests` now searches once)? Why does a further page repeat the
 query when the token alone identifies the search?*
 
-## 5. Errors, and what the bot should do with them
+## 5. Playlists, the third path (M4)
+
+The bot's third question is "what is on this playlist?": today
+`listPlaylist(url, n)` runs `yt-dlp --flat-playlist --playlist-items :N`
+and reads url/title pairs. The library answers it with one request per
+hundred videos:
+
+```cpp
+ytres::Result<ytres::Playlist> list = resolver.playlist("https://www.youtube.com/playlist?list=PL...", 50);
+// list.value.title, list.value.totalCount, list.value.entries[i].videoId / title / durationSeconds
+```
+
+M4, like M3, was written without a build (see `docs/m4-plan.md`, "Before
+this is done"): read this section as the design too. It stands almost
+entirely on M3's groundwork — `apiRequest()`, `continuationOf()`,
+`json_read.h` — and adds:
+
+```
+src/playlist.*          the browse request and the reader of one page, in both layouts
+src/url_parse.*         parsePlaylistId(): which playlist a link names
+src/resolver.cpp        Impl::playlist(): the loop
+```
+
+**Step 0 — the guards and the id.** Search's opening (the `try`/`catch`,
+the moved-from check, `callDeadline()`), then `max == 0` is `BadInput`,
+then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, or
+of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
+`_PLAYLIST_ID_RE` pass — `PL`, `UU` (a channel's uploads), `OLAK5uy_` (an
+album) and their kin. A mix (`RD...`), Watch Later (`WL`) or Liked videos
+(`LL`) is `BadInput` with a message that says it needs a signed-in viewer:
+YouTube makes those lists for one person, and nothing the library could
+fetch would be the user's list. The scheme and host checks are the ones
+`parseVideoId()` uses, lifted into one helper both call.
+
+**Step 1 — the request.** `POST /youtubei/v1/browse` as the `web` client,
+with cached visitor data when there is some — search's rule:
+
+```
+{"context": {...}, "browseId": "VLPLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4"}
+```
+
+A playlist's browse id is its id behind `VL`. A later page sends the
+context, `continuation` and `clickTracking`, and no `browseId`: unlike a
+search, which repeats its query, the token alone names the page.
+
+**Step 2 — the answer, in two layouts.** YouTube changed what a playlist
+page looks like. Every playlist probed on 2026-10-01 came as
+`lockupViewModel` entries — a "view model", with the id in `contentId`,
+the title in `metadata.lockupMetadataViewModel.title.content` and the
+length as a badge over the thumbnail — while yt-dlp still also reads the
+older `playlistVideoRenderer`s inside a `playlistVideoListRenderer`.
+`parsePlaylistResponse()` takes both, because nobody can say which one
+YouTube serves next month. The old layout can no longer be recorded, so its
+test page is written by hand and says so.
+
+The continuation is the subtle part. On a first page the section list holds
+the item section and, *beside* it, a `continuationItemViewModel` that loads
+something else; the one to follow sits *among the entries*, at the end of
+the item section's own `contents[]`. That is the opposite of search, where
+the continuation sits beside the item sections. `playlist_long_first.json`
+holds both, with different tokens, and a test checks which is taken;
+`playlist_small.json` holds only the one beside, so its 7 videos cost one
+request. A further page's answer has a `contents` key too, but it is a
+stub, and its metadata repeats the first page's: when an
+`appendContinuationItemsAction` is there, the reader reads that and
+nothing else.
+
+The title comes from `metadata.playlistMetadataRenderer.title` — a plain
+string, so `readString()`, not `textOf()` — and the count from the first
+stat in the sidebar: "447 episodes" is 447 through `videoCount()`, and the
+"6,000" of a long one loses its comma. Only a video with a valid id and a
+playable title becomes an entry; `[Private video]` and `[Deleted video]`
+are what the bot filters today. A playlist that does not exist answers
+HTTP 200 with no contents and an `ERROR` alert: that is `Unavailable`,
+with YouTube's own sentence. And search's guard returns: a first page that
+counts videos but holds no readable entry is `Parse`, not an empty
+playlist.
+
+**Step 3 — the loop.** As for search: append until `max`, and follow the
+continuation while short of it, so the first 50 videos of a 6000-video
+playlist cost one request. Two differences. A page that brought no entry
+does not end the list, since it may have held nothing but videos nobody
+may watch. And because a list can run to two hundred pages, two guards
+from yt-dlp's `_entries` stop a feed that loops: a continuation token seen
+before ends the loop with a warning, and so does page 200. The title and
+the count come from page one, and a later page's failure comes back with
+the playlist read so far.
+
+*Questions: why does the reader ignore the continuation beside the item
+section, and how would a test notice if it took that one? Why is the count
+what tells "empty" from "unreadable"? Why may a playlist page with no
+entries lead on when a search page with none may not?*
+
+## 6. Errors, and what the bot should do with them
 
 `ytres::Error` in `ytres.h` is the contract the bot will program against.
 Grouped by what a caller does:
@@ -334,12 +428,12 @@ stands.
 *Questions: for each code, what should the bot say to the user, and should
 it try yt-dlp? Where would a `Retry-After` from a 429 belong?*
 
-## 6. The HTTP client
+## 7. The HTTP client
 
 `include/ytres/http.h` declares an interface with one method:
 `HttpClient::send(const HttpRequest &) -> Result<HttpResponse>`. Everything
 above it is written against that interface, which is what makes the tests
-offline (section 8) and would let an Android build swap in something else.
+offline (section 9) and would let an Android build swap in something else.
 `src/curl_http_client.cpp` is the default implementation, over libcurl.
 
 Read `CurlHttpClient::send()` top to bottom; it is one function, and every
@@ -387,7 +481,7 @@ line answers a specific question:
 what gets freed and in what order. What would break if `Attachment` were
 declared before the handles?*
 
-## 7. Threads
+## 8. Threads
 
 The bot's `ResolverWorker` resolves the next song while the current one
 plays, and a skip cancels from yet another thread. So the rules, stated at
@@ -416,7 +510,7 @@ the top of `resolver.cpp` and `visitor_cache.h`:
 *Questions: what could go wrong if the mutex were held across the page
 fetch? Why must the cancel check itself never block?*
 
-## 8. Tests
+## 9. Tests
 
 Three layers, each with a different relationship to the network:
 
@@ -432,15 +526,16 @@ before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
-M3's `search_test.cpp` (not yet compiled); `ctest` runs only this target.
+M3's `search_test.cpp` and 160 with M4's `playlist_test.cpp` (neither yet
+compiled); `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish
 title, a 10-hour video, a 24/7 live stream, a "- Topic" upload, an
 age-restricted one, a deleted id) and checks each expected code, it
-measures cancellation latency against a non-routable address, and since M3
-it searches once, which is what would notice YouTube reshaping its search
-answer. Not in
+measures cancellation latency against a non-routable address, since M3 it
+searches once and since M4 it lists 150 videos of a playlist over two
+pages, which is what would notice YouTube reshaping either answer. Not in
 `ctest`, because YouTube's answers change and the network is not a test
 fixture.
 
@@ -454,7 +549,7 @@ whenever something feels off, and after any YouTube change you hear about.
 layer catches a regression in header construction, and which catches
 YouTube starting to require a header we do not send?*
 
-## 9. Build
+## 10. Build
 
 - `CMakeLists.txt` defines three targets: `ytres` (a static library),
   `ytres_cli` and `ytres_tests`; `tests/CMakeLists.txt` adds
@@ -475,7 +570,7 @@ YouTube starting to require a header we do not send?*
 *Questions: what does `add_subdirectory(yt-dlp-resolver)` from the bot's
 CMake need, and what does an installed package need instead?*
 
-## 10. The process, for the curious
+## 11. The process, for the curious
 
 Each milestone ran the same loop, and each step exists because the previous
 one failed at some point:
@@ -508,9 +603,9 @@ author reads.
 
 - **M3, search**: written (section 4), not yet built. Its first step is
   the build and the runs under "Before this is done" in `docs/m3-plan.md`.
-- **M4, playlists**: `POST /youtubei/v1/browse` with `VL<playlistId>` and
-  continuation tokens, bounded by the caller's `max`, on M3's groundwork
-  (`apiRequest()`, `continuation.h`, `json_read.h`); `docs/m4-plan.md`.
+- **M4, playlists**: written (section 5), not yet built either. Its first
+  step is the build and the runs under "Before this is done" in
+  `docs/m4-plan.md`, a comparison with `yt-dlp --flat-playlist` among them.
 - **M6, the bot**: an `IMediaResolver` seam in the bot with two
   implementations, native first and yt-dlp as the permanent fallback. The
   bot's `ResolvedMedia`/`PlaylistListing` types are already the right shape.
