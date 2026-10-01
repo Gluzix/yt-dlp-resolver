@@ -48,10 +48,11 @@ struct SearchPage
 //   contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[]
 // on a first page, of
 //   onResponseReceivedCommands[].appendContinuationItemsAction.continuationItems[]
-// on a further one, and the continuation beside them. Pure. Not JSON, JSON
-// with neither container, or a first page whose estimatedResults is above 0
-// but which holds no readable video, is Parse; any other page with no videos
-// in it is not.
+// on a further one, and the continuation beside them - or, when none is
+// there, the first one inside an item section's contents[], where yt-dlp
+// looks too. Pure. Not JSON, JSON with neither container, or a first page
+// whose estimatedResults is above 0 but which holds no readable video, is
+// Parse; any other page with no videos in it is not.
 Result<SearchPage> parseSearchResponse(const std::string &body);
 
 }

@@ -116,8 +116,9 @@ SearchResult readVideo(const json &renderer)
     return result;
 }
 
-// The videos of one item section, in its order.
-void appendVideos(const json &section, std::vector<SearchResult> &results)
+// The videos of one item section, in its order, and into inner, unless it
+// already has one, the first continuation among them.
+void appendVideos(const json &section, std::vector<SearchResult> &results, Continuation &inner)
 {
     const json *contents = childArray(section, "contents");
     if (!contents) {
@@ -126,6 +127,9 @@ void appendVideos(const json &section, std::vector<SearchResult> &results)
     for (const json &item : *contents) {
         const json *renderer = child(item, "videoRenderer");
         if (!renderer) {
+            if (inner.token.empty()) {
+                inner = continuationOf(item);
+            }
             continue; // a channel, a shelf, the empty search's promo
         }
         SearchResult result = readVideo(*renderer);
@@ -142,15 +146,20 @@ Result<SearchPage> readSearchResponse(const json &root)
     if (!items) {
         return {{Error::Parse, "The search response holds no results section"}, {}};
     }
-    // Item sections hold the results; the page's continuation sits beside
-    // them, not inside.
+    // Item sections hold the results, and the page's continuation sits beside
+    // them. yt-dlp also takes one from inside an item section, so that one
+    // serves when there is none beside.
     SearchPage page;
+    Continuation inside;
     for (const json &item : *items) {
         if (const json *section = child(item, "itemSectionRenderer")) {
-            appendVideos(*section, page.results);
+            appendVideos(*section, page.results, inside);
         } else if (page.next.token.empty()) {
             page.next = continuationOf(item);
         }
+    }
+    if (page.next.token.empty()) {
+        page.next = std::move(inside);
     }
     // YouTube counts results, yet none is a video the library can read: the
     // results have moved into a renderer it does not know. Saying "nothing

@@ -449,6 +449,20 @@ TEST_CASE("a first page that counts results but holds no video the library can r
     CHECK(test.resolver.search(artist(), 5).status.code == Error::Parse);
 }
 
+TEST_CASE("a continuation inside an item section serves when none sits beside the sections, as yt-dlp reads it")
+{
+    const std::string inner = section(video("aaaaaaaaaaa") + "," + continuationItem("INNER") + "," + continuationItem("LATER"));
+    const auto alone = parseSearchResponse(firstPage(inner));
+    REQUIRE(alone);
+    CHECK(idsOf(alone.value.results) == std::vector<std::string>{"aaaaaaaaaaa"});
+    CHECK(alone.value.next.token == "INNER");
+
+    // The one beside the sections comes first, wherever it stands.
+    const auto both = parseSearchResponse(furtherPage(inner + "," + continuationItem("BESIDE")));
+    REQUIRE(both);
+    CHECK(both.value.next.token == "BESIDE");
+}
+
 TEST_CASE("an answer that is no search response is a Parse failure")
 {
     const char *const bodies[] = {
