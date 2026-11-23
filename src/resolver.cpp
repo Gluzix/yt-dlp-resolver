@@ -329,7 +329,9 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     if (max == 0) {
         return {{Error::BadInput, "A search must ask for at least one video"}, {}};
     }
-    if (query.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+    // ASCII white space only, as C's isspace() has it in the C locale; a
+    // Unicode space such as U+00A0 goes to YouTube like any text.
+    if (query.find_first_not_of(" \t\r\n\v\f") == std::string_view::npos) {
         return {{Error::BadInput, "The search query is empty"}, {}};
     }
     // Sent all the same, with U+FFFD where the bytes break, as the request

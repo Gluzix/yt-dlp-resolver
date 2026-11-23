@@ -228,7 +228,9 @@ first for an artist's name, and an empty search holds one
    deadline clamped to 0–24 h. Lift the clamp into a small helper both use
    rather than writing it twice.
 2. `max == 0`, or a query that is empty after trimming ASCII spaces, is
-   `BadInput`.
+   `BadInput`. Since 2026-11-23 those spaces are all six of C's `isspace()`
+   in the C locale (space, `\t`, `\n`, `\v`, `\f`, `\r`); Unicode spaces
+   and control characters are still sent.
 3. Send the first page through `Impl::send()` (it applies the cancel check
    and what is left of the deadline). `Impl::Call` gets an empty `videoId`
    here; say so in its comment. A status outside 200–299 is `Http`, as in

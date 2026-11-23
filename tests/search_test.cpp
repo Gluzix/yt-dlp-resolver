@@ -950,7 +950,7 @@ TEST_CASE("a search for no videos, or for nothing, is BadInput and sends nothing
 {
     TestResolver test;
     CHECK(test.resolver.search(artist(), 0).status.code == Error::BadInput);
-    for (const char *query : {"", " ", " \t\r\n "}) {
+    for (const char *query : {"", " ", " \t\r\n ", "\v\f", " \v \f "}) {
         const std::string shown = query;
         CAPTURE(shown);
         CHECK(test.resolver.search(query, 5).status.code == Error::BadInput);

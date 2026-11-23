@@ -220,7 +220,8 @@ public:
     // ends the search with a warning in the log: the feed is going round.
     // A search reads ten pages at most, about two hundred videos, whatever
     // max asks for; one cut there comes back Ok, with a warning in the log.
-    // max of 0, or a query that is empty or all spaces, is BadInput. A query
+    // max of 0, or a query that is empty or all ASCII white space, is
+    // BadInput (a Unicode space such as U+00A0 is sent). A query
     // that is not valid UTF-8 is sent all the same, with U+FFFD in place of
     // its broken bytes, and a warning in the log says so.
     // A first page where YouTube counts results but holds none the library
