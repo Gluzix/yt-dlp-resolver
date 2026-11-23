@@ -27,6 +27,10 @@
 //   failure goes to stderr as "<Error>: <message>" with exit code 1; a
 //   search or a playlist that fails on a later page prints what it read
 //   first.
+// - A --dump is a side output: it is written after the results are out, so
+//   a dump that cannot be written ("Internal: Cannot write <file>") costs
+//   the run its exit code, not what it fetched. A failure or a cancel that
+//   left no response to dump says so on stderr.
 // - Titles go out as the library's UTF-8, byte for byte: no code page
 //   conversion here either.
 // - A --dump is a fixture to commit, so scrubbed() (scrub.h) takes out what
@@ -123,6 +127,25 @@ bool writeFile(const std::string &path, const std::string &contents)
     return !file.fail();
 }
 
+// The --dump, when one was asked for: response scrubbed, after the run's
+// output. code is the run's exit code so far, and comes back 1 when the
+// file cannot be written.
+int writeDump(const ytres_cli::Arguments &args, const std::string &response, int code)
+{
+    if (!args.dumpPath) {
+        return code;
+    }
+    if (response.empty()) {
+        std::cerr << "No response to dump\n";
+        return code;
+    }
+    if (!writeFile(*args.dumpPath, ytres_cli::scrubbed(response))) {
+        std::cerr << "Internal: Cannot write " << *args.dumpPath << '\n';
+        return 1;
+    }
+    return code;
+}
+
 // One line per format: itag, kind, codec, bitrate, size, dimensions.
 void printFormats(const ytres::VideoInfo &info)
 {
@@ -135,6 +158,28 @@ void printFormats(const ytres::VideoInfo &info)
                     format.codec.c_str(), format.bitrate, static_cast<long long>(format.contentLength),
                     dimensions.c_str());
     }
+}
+
+// A resolve's output: the three lines, or every format with --formats, or
+// the failure. The exit code.
+int printVideo(const ytres::Result<ytres::VideoInfo> &result, const ytres_cli::Arguments &args)
+{
+    if (!result) {
+        std::cerr << errorName(result.status.code) << ": " << result.status.message << '\n';
+        return 1;
+    }
+    const ytres::VideoInfo &info = result.value;
+    if (args.formats) {
+        printFormats(info);
+        return 0;
+    }
+    const std::optional<ytres::Format> best = info.bestAudio();
+    if (!best) {
+        std::cerr << errorName(ytres::Error::NoFormats) << ": No audio-only format\n";
+        return 1;
+    }
+    std::cout << info.title << '\n' << info.webpageUrl << '\n' << best->url << '\n';
+    return 0;
 }
 
 // --search's length column: the seconds, or what stands in for them.
@@ -155,22 +200,18 @@ int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, co
     const ytres::Result<std::vector<ytres::SearchResult>> found =
         resolver.search(*args.query, args.max.value_or(DEFAULT_SEARCH_MAX));
 
-    // Written before the verdict, as for a resolve.
-    if (args.dumpPath && !recorder.searchResponse.empty()
-        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder.searchResponse))) {
-        std::cerr << "Cannot write " << *args.dumpPath << '\n';
-        return 1;
-    }
     // A later page's failure leaves the videos read before it: they go out too.
     for (const ytres::SearchResult &result : found.value) {
         std::cout << ytres::watchUrl(result.videoId) << '\t' << lengthOf(result) << '\t' << result.author << '\t'
                   << result.title << '\n';
     }
+    int code = 0;
     if (!found) {
         std::cerr << errorName(found.status.code) << ": " << found.status.message << '\n';
-        return 1;
+        code = 1;
     }
-    return 0;
+    // Written whatever the verdict: an empty search's answer is a fixture too.
+    return writeDump(args, recorder.searchResponse, code);
 }
 
 // --playlist: the title and the count, one line per video, then the
@@ -180,13 +221,6 @@ int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, 
     const ytres::Result<ytres::Playlist> list =
         resolver.playlist(*args.playlist, args.max.value_or(DEFAULT_PLAYLIST_MAX));
 
-    // Written before the verdict, as for a resolve: a missing playlist's
-    // answer is a fixture too.
-    if (args.dumpPath && !recorder.browseResponse.empty()
-        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder.browseResponse))) {
-        std::cerr << "Cannot write " << *args.dumpPath << '\n';
-        return 1;
-    }
     // A later page's failure leaves the playlist as read before it: it goes
     // out too. A failure on the first page leaves nothing to print.
     const ytres::Playlist &listed = list.value;
@@ -196,11 +230,13 @@ int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, 
     for (const ytres::PlaylistEntry &entry : listed.entries) {
         std::cout << ytres::watchUrl(entry.videoId) << '\t' << entry.durationSeconds << '\t' << entry.title << '\n';
     }
+    int code = 0;
     if (!list) {
         std::cerr << errorName(list.status.code) << ": " << list.status.message << '\n';
-        return 1;
+        code = 1;
     }
-    return 0;
+    // Written whatever the verdict: a missing playlist's answer is a fixture too.
+    return writeDump(args, recorder.browseResponse, code);
 }
 
 }
@@ -232,28 +268,6 @@ int main(int argc, char **argv)
         return runPlaylist(resolver, *recorder, args);
     }
     const ytres::Result<ytres::VideoInfo> result = resolver.resolve(*args.target);
-
-    // Written before the verdict: an unavailable video's answer is a fixture too.
-    if (args.dumpPath && !recorder->playerResponse.empty()
-        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder->playerResponse))) {
-        std::cerr << "Cannot write " << *args.dumpPath << '\n';
-        return 1;
-    }
-    if (!result) {
-        std::cerr << errorName(result.status.code) << ": " << result.status.message << '\n';
-        return 1;
-    }
-
-    const ytres::VideoInfo &info = result.value;
-    if (args.formats) {
-        printFormats(info);
-        return 0;
-    }
-    const std::optional<ytres::Format> best = info.bestAudio();
-    if (!best) {
-        std::cerr << errorName(ytres::Error::NoFormats) << ": No audio-only format\n";
-        return 1;
-    }
-    std::cout << info.title << '\n' << info.webpageUrl << '\n' << best->url << '\n';
-    return 0;
+    // Written whatever the verdict: an unavailable video's answer is a fixture too.
+    return writeDump(args, recorder->playerResponse, printVideo(result, args));
 }
