@@ -648,6 +648,20 @@ TEST_CASE("a search reads ten pages at most, whatever max asks for")
     REQUIRE(found);
     CHECK(test.http->requests.size() == 10);
     CHECK(found.value.size() == 200);
+    // Cut, not finished, and the log says so.
+    CHECK(test.logLine(ytres::LogLevel::Warning, "The search stopped after 10 pages with 200 videos") != nullptr);
+
+    // Ten pages that end of themselves are no cut.
+    TestResolver ten;
+    std::deque<std::string> &tenBodies = ten.http->apiBodies["search"];
+    tenBodies.push_back(firstPage(section(videos(0, 20)) + "," + continuationItem("T1")));
+    for (int page = 2; page <= 10; ++page) {
+        const std::string more = page < 10 ? "," + continuationItem("T" + std::to_string(page)) : std::string{};
+        tenBodies.push_back(furtherPage(section(videos(page * 100, 20)) + more));
+    }
+    REQUIRE(ten.resolver.search(artist(), 1000));
+    CHECK(ten.http->requests.size() == 10);
+    CHECK_FALSE(ten.logged(ytres::LogLevel::Warning));
 }
 
 TEST_CASE("a search whose continuation repeats stops there, with each video once")

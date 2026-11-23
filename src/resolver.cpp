@@ -374,7 +374,13 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
             ++added;
         }
         // A page that brought no videos promises none on the next.
-        if (found.size() >= max || page.value.next.token.empty() || results.empty() || pageNumber >= MAX_SEARCH_PAGES) {
+        if (found.size() >= max || page.value.next.token.empty() || results.empty()) {
+            break;
+        }
+        // Cut short of max, not finished: the caller must hear of it.
+        if (pageNumber >= MAX_SEARCH_PAGES) {
+            log(LogLevel::Warning, "The search stopped after " + std::to_string(MAX_SEARCH_PAGES) + " pages with "
+                                       + std::to_string(found.size()) + " videos");
             break;
         }
         // A page of nothing but videos already handed on is a feed going
