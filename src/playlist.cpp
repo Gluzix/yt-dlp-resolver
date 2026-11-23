@@ -129,7 +129,9 @@ std::optional<PlaylistEntry> fromRenderer(const json &renderer)
 // already has one, the first continuation among them: the one that loads the
 // entries after these. Returns how many videos the array held in a layout
 // the reader knows, kept or dropped: a page of nothing but private videos
-// is read right, though it lists none.
+// is read right, though it lists none. A video counts only when its id is
+// one the reader can read, so a layout that moves or renames the id still
+// leaves a first page that counts videos Parse rather than empty.
 std::size_t appendEntries(const json &items, std::vector<PlaylistEntry> &entries, Continuation &next)
 {
     std::size_t videosSeen = 0;
@@ -137,12 +139,14 @@ std::size_t appendEntries(const json &items, std::vector<PlaylistEntry> &entries
         std::optional<PlaylistEntry> entry;
         if (const json *lockup = child(item, "lockupViewModel")) {
             entry = fromLockup(*lockup);
-            if (entry) {
+            if (entry && isVideoId(entry->videoId)) {
                 ++videosSeen; // a video lockup; a playlist or a channel is none
             }
         } else if (const json *renderer = child(item, "playlistVideoRenderer")) {
             entry = fromRenderer(*renderer);
-            ++videosSeen; // a video, playable or not
+            if (isVideoId(readString(*renderer, "videoId"))) {
+                ++videosSeen; // a video, playable or not
+            }
         } else {
             if (next.token.empty()) {
                 next = continuationOf(item);

@@ -700,6 +700,30 @@ TEST_CASE("a first page whose videos are all private or deleted is read right, a
     CHECK(parsePlaylistResponse(firstPage(others + "," + continuationItem("T1"), "5 videos")).status.code == Error::Parse);
 }
 
+TEST_CASE("a first page whose videos carry no id the reader can read is Parse, in either layout")
+{
+    // As it would look had YouTube moved or renamed the id field: the video
+    // is known by its kind, but nothing can be listed from it.
+    const std::string noContentId =
+        R"({"lockupViewModel":{"contentType":"LOCKUP_CONTENT_TYPE_VIDEO","videoKey":"aaaaaaaaaaa",)"
+        R"("metadata":{"lockupMetadataViewModel":{"title":{"content":"T"}}}}})";
+    const auto lockupPage = parsePlaylistResponse(firstPage(noContentId, "5 videos"));
+    CHECK(lockupPage.status.code == Error::Parse);
+    CHECK(lockupPage.status.message == "The playlist counts videos but holds none the library can read");
+    CHECK(parsePlaylistResponse(firstPage(lockup("") + "," + continuationItem("T1"), "5 videos")).status.code
+          == Error::Parse);
+
+    const std::string renamedId = R"({"playlistVideoRenderer":{"id":"aaaaaaaaaaa","title":{"runs":[{"text":"T"}]}}})";
+    CHECK(parsePlaylistResponse(firstPage(renamedId, "5 videos")).status.code == Error::Parse);
+    CHECK(parsePlaylistResponse(firstPage(renderer("short", "T", R"(,"isPlayable":false)"), "5 videos")).status.code
+          == Error::Parse);
+
+    // Through the Resolver: a failure the caller falls back on.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {firstPage(noContentId, "450 videos")};
+    CHECK(test.resolver.playlist(LONG_PLAYLIST, 5).status.code == Error::Parse);
+}
+
 TEST_CASE("a playlist page names the visitor YouTube took the caller for, when it may go out as a header")
 {
     const std::string page = firstPage(lockup("aaaaaaaaaaa"));
