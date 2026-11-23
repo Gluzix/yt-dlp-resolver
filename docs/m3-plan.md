@@ -342,3 +342,15 @@ on, no longer sounds the `Parse` alarm at once; the reader takes the
 container its request expects; `estimatedResults` in any form keeps the
 alarm on; `\v` and `\f` count as blank; and a malformed length is 0. The
 dated notes under "The loop" and "The response" say what changed.
+
+When the review of pull request 7 asked for it, the paging loop was traced
+again, offline: by hand, exit by exit, against `ytres.h` and this plan, and
+by brute force, 5,032,229 generated runs (every page sequence up to five
+pages, eight values of `max`, cancels, deadlines and visitor data) in a
+Debug and an optimized build. No logic fault turned up. Four small findings
+did, all fixed in that round: a cancel check that threw before a later page
+lost the videos already read (it is now `Internal` for that page alone);
+with nothing cached, a later page carries the latest visitor data an
+earlier page named, not strictly the page before's, which the texts now
+say; `ytres.h` stated the two `Parse` exceptions so that they overlapped;
+and `docs/walkthrough.md` still described the loop as it was before.

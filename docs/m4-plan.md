@@ -321,3 +321,15 @@ links were refused; a first page whose videos were all private or deleted
 was `Parse`; and a malformed length badge read as hours. The dated notes
 under "Which playlist" and "A layout the reader does not know" say what
 changed.
+
+When the review of pull request 7 asked for it, the paging loop was traced
+again, offline: by hand, exit by exit, against `ytres.h` and this plan, and
+by brute force, 641,849 generated runs in both layouts (every sequence up
+to three pages, reduced alphabets to five, the 200-page cap, 30,000 random
+long sequences, deadlines) in a Debug and an optimized build. No invariant
+failed. The four findings of that round, shared with search's and all
+fixed in it (see `docs/m3-plan.md`, "Verified"), touched the playlist in
+two: a cancel check that threw before a later page lost the title, count
+and entries already read, and the visitor data a later page carries is the
+latest an earlier page named; the walkthrough now also says that a first
+page of only private or deleted videos is Ok and leads on.
