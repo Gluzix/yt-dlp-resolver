@@ -1,9 +1,9 @@
+#include "arguments.h"
 #include "scrub.h"
 
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
-#include <charconv>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -12,7 +12,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -45,13 +44,6 @@ const std::size_t DEFAULT_SEARCH_MAX = 5;
 
 // How many videos --playlist lists when --max does not say.
 const std::size_t DEFAULT_PLAYLIST_MAX = 50;
-
-// What --client takes: yt-dlp's names for the clients, as the library's
-// table keeps them.
-const std::pair<std::string_view, ytres::ClientId> CLIENT_NAMES[] = {
-    {"visionos", ytres::ClientId::VisionOS},
-    {"web", ytres::ClientId::Web},
-};
 
 const char *errorName(ytres::Error error)
 {
@@ -123,94 +115,6 @@ private:
     bool browseRecorded{false};
 };
 
-struct Arguments
-{
-    std::string target;
-    bool formats{false};
-    std::string dumpPath;
-    std::optional<ytres::ClientId> client; // the library's own ladder when empty
-    std::optional<std::string> query;      // --search: a search instead of a resolve
-    std::optional<std::string> playlist;   // --playlist: a playlist instead of a resolve
-    std::optional<std::size_t> max;        // for --search or --playlist; their default when empty
-};
-
-std::optional<ytres::ClientId> clientNamed(std::string_view name)
-{
-    for (const auto &[clientName, id] : CLIENT_NAMES) {
-        if (clientName == name) {
-            return id;
-        }
-    }
-    return std::nullopt;
-}
-
-// --max's count: decimal digits and nothing else. 0 goes through, for the
-// library to answer.
-std::optional<std::size_t> countIn(std::string_view text)
-{
-    std::size_t count = 0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), count);
-    if (text.empty() || error != std::errc() || end != text.data() + text.size()) {
-        return std::nullopt;
-    }
-    return count;
-}
-
-bool parseArguments(int argc, char **argv, Arguments &args)
-{
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--formats") {
-            args.formats = true;
-        } else if (arg == "--dump") {
-            if (++i >= argc) {
-                return false;
-            }
-            args.dumpPath = argv[i];
-        } else if (arg == "--client") {
-            if (++i >= argc) {
-                return false;
-            }
-            args.client = clientNamed(argv[i]);
-            if (!args.client) {
-                return false;
-            }
-        } else if (arg == "--search") {
-            if (++i >= argc || args.query) {
-                return false;
-            }
-            args.query = argv[i];
-        } else if (arg == "--playlist") {
-            if (++i >= argc || args.playlist) {
-                return false;
-            }
-            args.playlist = argv[i];
-        } else if (arg == "--max") {
-            if (++i >= argc) {
-                return false;
-            }
-            args.max = countIn(argv[i]);
-            if (!args.max) {
-                return false;
-            }
-        } else if (arg.rfind("--", 0) == 0 || !args.target.empty()) {
-            return false;
-        } else {
-            args.target = arg;
-        }
-    }
-    // Exactly one of a target, a search and a playlist. --formats and
-    // --client are about a resolve, --max about a search or a playlist.
-    const int modes = (args.target.empty() ? 0 : 1) + (args.query ? 1 : 0) + (args.playlist ? 1 : 0);
-    if (modes != 1) {
-        return false;
-    }
-    if (!args.target.empty()) {
-        return !args.max;
-    }
-    return !args.formats && !args.client;
-}
-
 bool writeFile(const std::string &path, const std::string &contents)
 {
     std::ofstream file(path, std::ios::binary);
@@ -246,15 +150,15 @@ std::string lengthOf(const ytres::SearchResult &result)
 }
 
 // --search: one line per video, then the failure, if any.
-int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, const Arguments &args)
+int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, const ytres_cli::Arguments &args)
 {
     const ytres::Result<std::vector<ytres::SearchResult>> found =
         resolver.search(*args.query, args.max.value_or(DEFAULT_SEARCH_MAX));
 
     // Written before the verdict, as for a resolve.
-    if (!args.dumpPath.empty() && !recorder.searchResponse.empty()
-        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder.searchResponse))) {
-        std::cerr << "Cannot write " << args.dumpPath << '\n';
+    if (args.dumpPath && !recorder.searchResponse.empty()
+        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder.searchResponse))) {
+        std::cerr << "Cannot write " << *args.dumpPath << '\n';
         return 1;
     }
     // A later page's failure leaves the videos read before it: they go out too.
@@ -271,16 +175,16 @@ int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, co
 
 // --playlist: the title and the count, one line per video, then the
 // failure, if any.
-int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, const Arguments &args)
+int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, const ytres_cli::Arguments &args)
 {
     const ytres::Result<ytres::Playlist> list =
         resolver.playlist(*args.playlist, args.max.value_or(DEFAULT_PLAYLIST_MAX));
 
     // Written before the verdict, as for a resolve: a missing playlist's
     // answer is a fixture too.
-    if (!args.dumpPath.empty() && !recorder.browseResponse.empty()
-        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder.browseResponse))) {
-        std::cerr << "Cannot write " << args.dumpPath << '\n';
+    if (args.dumpPath && !recorder.browseResponse.empty()
+        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder.browseResponse))) {
+        std::cerr << "Cannot write " << *args.dumpPath << '\n';
         return 1;
     }
     // A later page's failure leaves the playlist as read before it: it goes
@@ -303,8 +207,8 @@ int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, 
 
 int main(int argc, char **argv)
 {
-    Arguments args;
-    if (!parseArguments(argc, argv, args)) {
+    ytres_cli::Arguments args;
+    if (!ytres_cli::parseArguments(std::vector<std::string>(argv + 1, argv + argc), args)) {
         std::cerr << USAGE;
         return 1;
     }
@@ -327,12 +231,12 @@ int main(int argc, char **argv)
     if (args.playlist) {
         return runPlaylist(resolver, *recorder, args);
     }
-    const ytres::Result<ytres::VideoInfo> result = resolver.resolve(args.target);
+    const ytres::Result<ytres::VideoInfo> result = resolver.resolve(*args.target);
 
     // Written before the verdict: an unavailable video's answer is a fixture too.
-    if (!args.dumpPath.empty() && !recorder->playerResponse.empty()
-        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder->playerResponse))) {
-        std::cerr << "Cannot write " << args.dumpPath << '\n';
+    if (args.dumpPath && !recorder->playerResponse.empty()
+        && !writeFile(*args.dumpPath, ytres_cli::scrubbed(recorder->playerResponse))) {
+        std::cerr << "Cannot write " << *args.dumpPath << '\n';
         return 1;
     }
     if (!result) {

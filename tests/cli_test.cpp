@@ -1,10 +1,14 @@
+#include "arguments.h"
 #include "fake_http_client.h"
 #include "scrub.h"
 
 #include <doctest/doctest.h>
 
 #include <string>
+#include <vector>
 
+using ytres_cli::Arguments;
+using ytres_cli::parseArguments;
 using ytres_cli::scrubbed;
 
 // The harness's pure parts. Addresses here are from the documentation
@@ -90,4 +94,66 @@ TEST_CASE("every committed fixture is scrubbed already, so scrubbing it again ch
         REQUIRE_FALSE(body.empty());
         CHECK(scrubbed(body) == body);
     }
+}
+
+TEST_CASE("the command line: one mode, its own options, each once")
+{
+    using Line = std::vector<std::string>;
+    const Line accepted[] = {
+        {"dQw4w9WgXcQ"},
+        {"dQw4w9WgXcQ", "--formats", "--client", "web", "--dump", "x.json"},
+        {"--search", "q", "--max", "25", "--dump", "x.json"},
+        {"--playlist", "PLx", "--max", "0"},
+        {""},                      // an empty target is a target: the library says BadInput
+        {"--search", ""},
+    };
+    for (const Line &line : accepted) {
+        CAPTURE(line.size());
+        CAPTURE(line.empty() ? std::string{} : line.front());
+        Arguments args;
+        CHECK(parseArguments(line, args));
+    }
+    const Line refused[] = {
+        {},
+        {"--formats"},
+        {"", "--playlist", "RDxyz"},                       // the empty target does not vanish
+        {"a", "b"},
+        {"dQw4w9WgXcQ", "--search", "q"},
+        {"--search", "q", "--playlist", "PLx"},
+        {"--search", "q", "--search", "r"},
+        {"--playlist", "PLx", "--max", "5", "--max", "0"}, // the last no longer wins
+        {"x", "--client", "web", "--client", "visionos"},
+        {"x", "--dump", "a", "--dump", "b"},
+        {"x", "--formats", "--formats"},
+        {"x", "--max", "3"},
+        {"--search", "q", "--formats"},
+        {"--search", "q", "--client", "web"},
+        {"x", "--client", "tv"},
+        {"--search", "q", "--max"},
+        {"--search", "q", "--max", "-1"},
+        {"--search", "q", "--max", "3x"},
+        {"--search", "q", "--max", "99999999999999999999999"},
+        {"--search"},
+        {"--bogus", "1"},
+    };
+    for (const Line &line : refused) {
+        std::string shown;
+        for (const std::string &part : line) {
+            shown += "[" + part + "]";
+        }
+        CAPTURE(shown);
+        Arguments args;
+        CHECK_FALSE(parseArguments(line, args));
+    }
+
+    Arguments empty;
+    REQUIRE(parseArguments({""}, empty));
+    REQUIRE(empty.target);
+    CHECK(empty.target->empty());
+    Arguments search;
+    REQUIRE(parseArguments({"--search", "q", "--max", "25", "--dump", "x.json"}, search));
+    CHECK(search.query == std::optional<std::string>("q"));
+    CHECK(search.max == std::optional<std::size_t>(25));
+    CHECK(search.dumpPath == std::optional<std::string>("x.json"));
+    CHECK_FALSE(search.target);
 }
