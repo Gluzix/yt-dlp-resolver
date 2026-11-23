@@ -7,10 +7,8 @@ at master and probed against live YouTube on 2026-10-01. Branch: `m3/search`
 off `master`. Kamil merges through pull requests; nothing is pushed by anyone
 but him.
 
-**Written without a build.** Kamil asked for no compilation and no test runs
-while this milestone was coded, so nothing in it has been compiled or
-executed. The first thing to do when that is lifted is at the bottom, under
-"Before this is done".
+Coded without a build, as Kamil asked; first built and verified on
+2026-11-23 (see "Verified", at the bottom).
 
 ## What the bot needs
 
@@ -195,6 +193,13 @@ The items live in one of two places:
 - continuation: `onResponseReceivedCommands[].appendContinuationItemsAction.continuationItems[]`
   (take the first command that has one)
 
+Changed on 2026-11-23, after the first build: the reader looked for the
+continuation container first and took it on any page, so a first page that
+also carried one would have lost its own videos and its `Parse` alarm.
+`parseSearchResponse(body, kind)` now takes a `SearchPageKind` (`First` or
+`Further`) from the Resolver, which knows what it sent, and reads only the
+container that answer should have; without it the page is `Parse`.
+
 Each element of that array is either an `itemSectionRenderer`, whose
 `contents[]` hold the results, or the page's continuation
 (`continuationItemRenderer`, read with `continuationOf()`). So for search the
@@ -221,7 +226,9 @@ first for an artist's name, and an empty search holds one
    deadline clamped to 0–24 h. Lift the clamp into a small helper both use
    rather than writing it twice.
 2. `max == 0`, or a query that is empty after trimming ASCII spaces, is
-   `BadInput`.
+   `BadInput`. Since 2026-11-23 those spaces are all six of C's `isspace()`
+   in the C locale (space, `\t`, `\n`, `\v`, `\f`, `\r`); Unicode spaces
+   and control characters are still sent.
 3. Send the first page through `Impl::send()` (it applies the cancel check
    and what is left of the deadline). `Impl::Call` gets an empty `videoId`
    here; say so in its comment. A status outside 200–299 is `Http`, as in
@@ -229,8 +236,20 @@ first for an artist's name, and an empty search holds one
 4. Append results until `max`. While fewer than `max`, the page gave a
    continuation, the page added at least one result, and fewer than
    `MAX_SEARCH_PAGES` (10) were read: send the continuation and repeat.
+   Added on 2026-11-23, after the first build: a video whose id was handed
+   on already is skipped, a page that adds nothing new but repeats what was
+   handed on stops the search with a warning, and so does a continuation
+   token already sent, as the playlist loop does. A feed that goes round
+   would otherwise hand a bot the same videos up to ten times.
 5. A failure on the first page is that failure with an empty list. A failure
    on a later page is that failure with what was read so far.
+6. Added on 2026-11-23, after the first build: a first page that counts
+   results but holds no video does not stop the loop when it offers a
+   continuation. The next page is read once; its videos are the results,
+   and when it has none either, and page one held more than a channel or
+   the empty search's promo, the search is `Parse`
+   (`SearchPage::counted`, `SearchPage::unreadable`). A first page holding
+   only a channel, with no continuation, is Ok and empty.
 
 Log one Debug line per page ("search page N: K videos").
 
@@ -294,17 +313,47 @@ groundwork is a refactor.
 ## Out of scope
 
 Playlists (M4). Search filters other than videos-only, sorting, music search.
-Fetching visitor data for a search. De-duplicating results across pages
-(yt-dlp does not either).
+Fetching visitor data for a search. (De-duplicating results was out of scope
+here, as yt-dlp does not; it was added on 2026-11-23, see "The loop".)
 
-## Before this is done
+## Verified, 2026-11-23
 
-Nothing here was compiled or run. When Kamil lifts that:
+What this section once listed as still to do, done on the first build:
 
-1. Build all targets; fix whatever the compiler says, with 0 warnings at
-   `/W4 /permissive-` as before.
-2. `ctest`, then `ytres_live_tests`.
-3. One live search through `ytres_cli --search "Dawid Podsiadło" --max 25`
-   (two pages) and one with `--dump`, comparing the dump's shape with
-   `search_videos.json`.
-4. Only then is M3 reviewable as done.
+1. All targets built with 0 warnings at `/W4 /permissive-`; nothing in the
+   search code needed a change to compile.
+2. `ctest` passed (167 cases, 1244 assertions, before the fix round below;
+   187 and 1560 after it; 192 and 1599 after the loop-trace fixes that
+   close this section), and so did `ytres_live_tests` (7 cases, 368
+   assertions): a live search Ok in about 600 ms, five videos, one request.
+3. `ytres_cli --search "rick astley never gonna give you up" --max 25` gave
+   25 distinct videos over two pages, and a `--dump` of a live first page
+   had the shape of `search_videos.json`, scrubbed. `--search "Dawid
+   Podsiadło"` from a console gave the right videos only because YouTube
+   corrected the query: the harness had read its arguments in the ANSI code
+   page and sent U+FFFD for the "ł". After the fix round, the same run from
+   Git Bash sent `search_query=Dawid+Podsiad%C5%82o`, and the dump held no
+   correction card.
+
+The probing that followed the build found, and the fix round fixed: the
+harness's arguments (a UTF-8 manifest); a query that is not UTF-8 now logs a
+warning; a feed that repeats a token or its videos stops, each video once;
+the page cap warns; a first page holding only a channel, or one that leads
+on, no longer sounds the `Parse` alarm at once; the reader takes the
+container its request expects; `estimatedResults` in any form keeps the
+alarm on; `\v` and `\f` count as blank; and a malformed length is 0. The
+dated notes under "The loop" and "The response" say what changed.
+
+When the review of pull request 7 asked for it, the paging loop was traced
+again, offline: by hand, exit by exit, against `ytres.h` and this plan, and
+by brute force, 5,032,229 generated runs (every page sequence up to five
+pages, eight values of `max`, cancels, deadlines and visitor data) in a
+Debug and an optimized build. No logic fault turned up. Four small findings
+did, all fixed in that round: a cancel check that threw before a later page
+lost the videos already read (it is now `Internal` for that page alone);
+with nothing cached, a later page carries the latest visitor data an
+earlier page named, not strictly the page before's, which the texts now
+say (at first they credited yt-dlp with it, wrongly: yt-dlp sends the page
+before's and otherwise the one from the ytcfg page it downloads first, so
+keeping the latest is the library's own rule); `ytres.h` stated the two `Parse` exceptions so that they overlapped;
+and `docs/walkthrough.md` still described the loop as it was before.

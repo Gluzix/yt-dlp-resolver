@@ -127,15 +127,26 @@ std::optional<PlaylistEntry> fromRenderer(const json &renderer)
 
 // The entries of one array of a page, in its order, and into next, unless it
 // already has one, the first continuation among them: the one that loads the
-// entries after these.
-void appendEntries(const json &items, std::vector<PlaylistEntry> &entries, Continuation &next)
+// entries after these. Returns how many videos the array held in a layout
+// the reader knows, kept or dropped: a page of nothing but private videos
+// is read right, though it lists none. A video counts only when its id is
+// one the reader can read, so a layout that moves or renames the id still
+// leaves a first page that counts videos Parse rather than empty.
+std::size_t appendEntries(const json &items, std::vector<PlaylistEntry> &entries, Continuation &next)
 {
+    std::size_t videosSeen = 0;
     for (const json &item : items) {
         std::optional<PlaylistEntry> entry;
         if (const json *lockup = child(item, "lockupViewModel")) {
             entry = fromLockup(*lockup);
+            if (entry && isVideoId(entry->videoId)) {
+                ++videosSeen; // a video lockup; a playlist or a channel is none
+            }
         } else if (const json *renderer = child(item, "playlistVideoRenderer")) {
             entry = fromRenderer(*renderer);
+            if (isVideoId(readString(*renderer, "videoId"))) {
+                ++videosSeen; // a video, playable or not
+            }
         } else {
             if (next.token.empty()) {
                 next = continuationOf(item);
@@ -148,6 +159,7 @@ void appendEntries(const json &items, std::vector<PlaylistEntry> &entries, Conti
             entries.push_back(std::move(*entry));
         }
     }
+    return videosSeen;
 }
 
 // A further page's items: the first appendContinuationItemsAction among
@@ -365,8 +377,9 @@ Result<PlaylistPage> readPlaylistResponse(const json &root, const std::string &p
     // The continuation to follow is among the entries; the one beside the
     // item section is never looked at. The playlist asked for, when named,
     // picks its own item section from any other.
+    std::size_t videosSeen = 0;
     if (const json *items = entriesIn(*sections, playlistId)) {
-        appendEntries(*items, page.entries, page.next);
+        videosSeen = appendEntries(*items, page.entries, page.next);
     }
     // A section list with nothing in it and an ERROR alert beside it is
     // YouTube's refusal, not an empty playlist, whatever the count says.
@@ -379,8 +392,12 @@ Result<PlaylistPage> readPlaylistResponse(const json &root, const std::string &p
     // YouTube counts videos, yet none is one the library can read: the
     // entries have moved into a renderer it does not know. Saying "empty"
     // would keep every caller from falling back to another resolver. Only a
-    // first page says so; a further page with nothing in it is the end.
-    if (page.entries.empty() && page.totalCount > 0) {
+    // first page says so; a further page with nothing in it is the end. A
+    // page of videos the reader knows, every one of them dropped as private,
+    // deleted or unplayable, is no such page: it is read right, and its
+    // continuation, if any, leads on to the rest. A lockup of a playlist or
+    // a channel is no video, so a page of nothing else still fails.
+    if (page.entries.empty() && page.totalCount > 0 && videosSeen == 0) {
         return {{Error::Parse, "The playlist counts videos but holds none the library can read"}, {}};
     }
     return {{}, std::move(page)};

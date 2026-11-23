@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -81,12 +82,19 @@ inline std::int64_t toInt64(std::string_view text)
 }
 
 // YouTube sends some numbers as JSON numbers and others as strings
-// ("lengthSeconds": "212"). Either reads; missing or malformed is 0.
+// ("lengthSeconds": "212"). Either reads; missing or malformed is 0, and so
+// is a fraction (1e3 is a float to the parser). An unsigned number past the
+// int64 range is clamped to its top rather than wrapped to a negative one.
 inline std::int64_t readInt(const json &object, const char *key)
 {
     const auto it = object.find(key);
     if (it == object.end()) {
         return 0;
+    }
+    if (it->is_number_unsigned()) {
+        const std::uint64_t value = it->get<std::uint64_t>();
+        const auto top = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+        return value > top ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(value);
     }
     if (it->is_number_integer()) {
         return it->get<std::int64_t>();
@@ -128,7 +136,8 @@ inline std::string textOf(const json &object, const char *key)
 
 // A duration as YouTube writes it under a thumbnail, m:ss or h:mm:ss -
 // "4:36" is 276, "2:31:48" is 9108 - in seconds. Anything that is not two or
-// three groups of digits separated by colons is 0: "LIVE", "Upcoming", "".
+// three groups of digits separated by colons, every group after the first
+// two digits from 00 to 59, is 0: "LIVE", "Upcoming", "", "1:60", "0:5".
 inline std::int64_t durationSeconds(std::string_view text)
 {
     // Nine digits a group keeps the sum far inside 64 bits whatever comes.
@@ -142,12 +151,19 @@ inline std::int64_t durationSeconds(std::string_view text)
         if (group.empty() || group.size() > MAX_GROUP_DIGITS || ++groups > 3) {
             return 0;
         }
+        // Minutes after hours and seconds after minutes: "mm" and "ss".
+        if (groups > 1 && group.size() != 2) {
+            return 0;
+        }
         std::int64_t value = 0;
         for (const char c : group) {
             if (c < '0' || c > '9') {
                 return 0;
             }
             value = value * 10 + (c - '0');
+        }
+        if (groups > 1 && value >= 60) {
+            return 0;
         }
         total = total * 60 + value;
         if (colon == std::string_view::npos) {

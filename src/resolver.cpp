@@ -6,6 +6,7 @@
 #include "playlist.h"
 #include "search.h"
 #include "url_parse.h"
+#include "utf8.h"
 #include "visitor_cache.h"
 #include "watch_page.h"
 
@@ -328,8 +329,17 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     if (max == 0) {
         return {{Error::BadInput, "A search must ask for at least one video"}, {}};
     }
-    if (query.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+    // ASCII white space only, as C's isspace() has it in the C locale; a
+    // Unicode space such as U+00A0 goes to YouTube like any text.
+    if (query.find_first_not_of(" \t\r\n\v\f") == std::string_view::npos) {
         return {{Error::BadInput, "The search query is empty"}, {}};
+    }
+    // Sent all the same, with U+FFFD where the bytes break, as the request
+    // has always been written; YouTube often corrects the query back. But a
+    // caller that mangles its text, with a code page conversion say, must be
+    // able to find out from its log.
+    if (!utf8::isValid(query)) {
+        log(LogLevel::Warning, "The search query is not valid UTF-8; YouTube gets U+FFFD in place of its broken bytes");
     }
     // yt-dlp searches as the web client whatever it plays with, and so does
     // the library: Options::clients is the player's ladder.
@@ -339,16 +349,24 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     }
     // No watch page for a search: YouTube answered it bare on 2026-10-01.
     // Whatever a resolve left in the cache goes along, fresh or stale, on
-    // every page. With nothing cached, a later page carries the visitor data
-    // the page before it named, as yt-dlp sends it; that stays out of the
-    // cache, which holds what a watch page gave.
+    // every page. With nothing cached, a later page carries the latest
+    // visitor data an earlier page named: a page that names none keeps the
+    // one before, since an old visitor id beats none. yt-dlp sends the page
+    // before's and otherwise the one from the ytcfg page it downloads first;
+    // the library downloads no page, so it keeps the latest a page named.
+    // That stays out of the cache, which holds what a watch page gave.
     const std::string cached = visitorCache.get(Clock::now()).value;
     std::string visitorData = cached;
     const std::string text(query);
     const Call call{std::string{}, request, deadline.value};
 
     std::vector<SearchResult> found;
+    // A bot queues what it gets: a video YouTube hands out twice, on one
+    // page or across two, is handed on once.
+    std::set<std::string> idsFound;
     innertube::Continuation next;
+    std::set<std::string> tokensSent;
+    bool firstUnreadable = false; // page one counted results but held none it could read
     for (int pageNumber = 1;; ++pageNumber) {
         Result<innertube::SearchPage> page = askSearch(*web, text, visitorData, next, call);
         // A later page's failure keeps what the pages before it brought:
@@ -358,14 +376,49 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
         }
         std::vector<SearchResult> &results = page.value.results;
         log(LogLevel::Debug, "search page " + std::to_string(pageNumber) + ": " + std::to_string(results.size()) + " videos");
+        std::size_t added = 0;
         for (SearchResult &result : results) {
             if (found.size() >= max) {
                 break;
             }
+            if (!idsFound.insert(result.videoId).second) {
+                continue;
+            }
             found.push_back(std::move(result));
+            ++added;
         }
-        // A page that brought no videos promises none on the next.
-        if (found.size() >= max || page.value.next.token.empty() || results.empty() || pageNumber >= MAX_SEARCH_PAGES) {
+        // Page one held no video it could read, and neither does the page it
+        // led to: the results have moved somewhere the reader does not look.
+        if (pageNumber == 2 && firstUnreadable && results.empty()) {
+            return {{Error::Parse, innertube::UNREADABLE_SEARCH}, std::move(found)};
+        }
+        // A page that brought no videos promises none on the next - but for a
+        // first page that counts results and leads on: a channel alone ahead
+        // of the videos, or a layout the reader does not know, is worth the
+        // one page more that tells them apart.
+        const bool followEmpty = pageNumber == 1 && page.value.counted;
+        firstUnreadable = followEmpty && page.value.unreadable;
+        if (found.size() >= max || page.value.next.token.empty() || (results.empty() && !followEmpty)) {
+            break;
+        }
+        // Cut short of max, not finished: the caller must hear of it.
+        if (pageNumber >= MAX_SEARCH_PAGES) {
+            log(LogLevel::Warning, "The search stopped after " + std::to_string(MAX_SEARCH_PAGES) + " pages with "
+                                       + std::to_string(found.size()) + " videos");
+            break;
+        }
+        // A page of nothing but videos already handed on is a feed going
+        // round: the next would bring the same again.
+        if (added == 0 && !results.empty()) {
+            log(LogLevel::Warning, "The search repeats on page " + std::to_string(pageNumber)
+                                       + " only videos it already read; stopping there");
+            break;
+        }
+        // A token sent before would fetch a page read before, and the one
+        // after it, for ever.
+        if (!tokensSent.insert(page.value.next.token).second) {
+            log(LogLevel::Warning, "The search leads back to a page already read, after page "
+                                       + std::to_string(pageNumber) + "; stopping there");
             break;
         }
         next = std::move(page.value.next);
@@ -395,8 +448,8 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
         return {{Error::Internal, "The client table has no web client"}, {}};
     }
     // As for a search: no watch page, whatever a resolve left in the cache
-    // on every page, and with nothing cached, the visitor data the page
-    // before named, kept out of the cache.
+    // on every page, and with nothing cached, the latest visitor data an
+    // earlier page named, as yt-dlp's _entries does, kept out of the cache.
     const std::string cached = visitorCache.get(Clock::now()).value;
     std::string visitorData = cached;
     const Call call{std::string{}, request, deadline.value};
@@ -543,7 +596,10 @@ Result<innertube::SearchPage> Resolver::Impl::askSearch(const innertube::ClientD
     if (response.value.status < 200 || response.value.status >= 300) {
         return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
     }
-    return innertube::parseSearchResponse(response.value.body);
+    // The request decides which container its answer is read from.
+    return innertube::parseSearchResponse(response.value.body, continuation.token.empty()
+                                                                   ? innertube::SearchPageKind::First
+                                                                   : innertube::SearchPageKind::Further);
 }
 
 // One page of a playlist: the first when continuation has no token, else the
@@ -573,7 +629,19 @@ Result<innertube::PlaylistPage> Resolver::Impl::askPlaylist(const innertube::Cli
 // Sends one request within what is left of the call's deadline.
 Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &call) const
 {
-    if (call.request.cancelled && call.request.cancelled()) {
+    // A check that throws is the caller's bug, not a cancel: Internal, as
+    // CurlHttpClient reports it. Caught here rather than by the public net,
+    // so that it fails this request alone and a search or a playlist keeps
+    // the pages it read before.
+    bool stop = false;
+    try {
+        stop = call.request.cancelled && call.request.cancelled();
+    } catch (const std::exception &e) {
+        return {{Error::Internal, std::string("The cancel check threw: ") + e.what()}, {}};
+    } catch (...) {
+        return {{Error::Internal, "The cancel check threw"}, {}};
+    }
+    if (stop) {
         return {{Error::Cancelled, "Cancelled"}, {}};
     }
     const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(call.deadline - Clock::now());

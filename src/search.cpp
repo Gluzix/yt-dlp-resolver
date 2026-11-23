@@ -19,7 +19,6 @@ using nlohmann::ordered_json;
 using jsonread::child;
 using jsonread::childArray;
 using jsonread::durationSeconds;
-using jsonread::readInt;
 using jsonread::readString;
 using jsonread::textOf;
 
@@ -27,22 +26,25 @@ using jsonread::textOf;
 // protobuf filter. The older EgIQAQ== that circulates is not what it sends.
 const char *const VIDEOS_ONLY = "EgIQAfABAQ==";
 
-// The array that holds a page's item sections and its continuation: on a
-// further page, the first appendContinuationItemsAction among
-// onResponseReceivedCommands, looked for first since only a continuation
-// answer has one; on a first page, the section list. Null when the answer
-// has neither. firstPage says which it found.
-const json *pageItems(const json &root, bool &firstPage)
+// The array that holds a page's item sections and its continuation, in the
+// container the request expects: on a further page, the first
+// appendContinuationItemsAction among onResponseReceivedCommands; on a first
+// page, the section list. Null when the answer lacks it. Which request was
+// sent decides, not which container is there: a first page that also
+// carried an append action would otherwise lose its own videos.
+const json *pageItems(const json &root, SearchPageKind kind)
 {
-    firstPage = false;
-    if (const json *commands = childArray(root, "onResponseReceivedCommands")) {
-        for (const json &command : *commands) {
-            const json *action = child(command, "appendContinuationItemsAction");
-            const json *items = action ? childArray(*action, "continuationItems") : nullptr;
-            if (items) {
-                return items;
+    if (kind == SearchPageKind::Further) {
+        if (const json *commands = childArray(root, "onResponseReceivedCommands")) {
+            for (const json &command : *commands) {
+                const json *action = child(command, "appendContinuationItemsAction");
+                const json *items = action ? childArray(*action, "continuationItems") : nullptr;
+                if (items) {
+                    return items;
+                }
             }
         }
+        return nullptr;
     }
     const json *at = &root;
     for (const char *key : {"contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer"}) {
@@ -51,9 +53,7 @@ const json *pageItems(const json &root, bool &firstPage)
             return nullptr;
         }
     }
-    const json *sectionList = childArray(*at, "contents");
-    firstPage = sectionList != nullptr;
-    return sectionList;
+    return childArray(*at, "contents");
 }
 
 // Streaming now, by either of the marks yt-dlp reads: the LIVE badge, or a
@@ -117,9 +117,34 @@ SearchResult readVideo(const json &renderer)
     return result;
 }
 
+// The items a first page may hold with no video and still be read right:
+// a channel, which the videos-only filter lets through for an artist's
+// name, and the promo of a search that found nothing. Not a correction card
+// or a shelf: those come beside videos, and alone they may mean the videos
+// have moved somewhere the reader does not look.
+const char *const KNOWN_SKIPS[] = {"channelRenderer", "backgroundPromoRenderer"};
+
+// What a page held besides its videos, for the first page's alarm.
+struct Skipped
+{
+    bool known{false};   // a channel or the empty search's promo
+    bool unknown{false}; // anything else that is not a continuation
+};
+
+void noteSkipped(const json &item, Skipped &skipped)
+{
+    for (const char *key : KNOWN_SKIPS) {
+        if (child(item, key)) {
+            skipped.known = true;
+            return;
+        }
+    }
+    skipped.unknown = true;
+}
+
 // The videos of one item section, in its order, and into inner, unless it
 // already has one, the first continuation among them.
-void appendVideos(const json &section, std::vector<SearchResult> &results, Continuation &inner)
+void appendVideos(const json &section, std::vector<SearchResult> &results, Continuation &inner, Skipped &skipped)
 {
     const json *contents = childArray(section, "contents");
     if (!contents) {
@@ -128,10 +153,13 @@ void appendVideos(const json &section, std::vector<SearchResult> &results, Conti
     for (const json &item : *contents) {
         const json *renderer = child(item, "videoRenderer");
         if (!renderer) {
-            if (inner.token.empty()) {
-                inner = continuationOf(item);
+            const Continuation continuation = continuationOf(item);
+            if (continuation.token.empty()) {
+                noteSkipped(item, skipped); // a channel, a shelf, the empty search's promo
+            } else if (inner.token.empty()) {
+                inner = continuation;
             }
-            continue; // a channel, a shelf, the empty search's promo
+            continue;
         }
         SearchResult result = readVideo(*renderer);
         if (isVideoId(result.videoId)) {
@@ -140,10 +168,29 @@ void appendVideos(const json &section, std::vector<SearchResult> &results, Conti
     }
 }
 
-Result<SearchPage> readSearchResponse(const json &root)
+// Whether YouTube's estimatedResults says there is anything at all. It
+// comes as a digit string ("584471", "0"), but the alarm below must not go
+// quiet should it come as "1,234", a float or a number past int64: any
+// number but zero, or any string with a digit other than 0, counts.
+bool countsResults(const json &root)
 {
-    bool firstPage = false;
-    const json *items = pageItems(root, firstPage);
+    const auto it = root.find("estimatedResults");
+    if (it == root.end()) {
+        return false;
+    }
+    if (it->is_number()) {
+        return it->get<double>() != 0.0;
+    }
+    if (it->is_string()) {
+        const std::string &text = it->get_ref<const std::string &>();
+        return text.find_first_of("123456789") != std::string::npos;
+    }
+    return false;
+}
+
+Result<SearchPage> readSearchResponse(const json &root, SearchPageKind kind)
+{
+    const json *items = pageItems(root, kind);
     if (!items) {
         return {{Error::Parse, "The search response holds no results section"}, {}};
     }
@@ -152,11 +199,17 @@ Result<SearchPage> readSearchResponse(const json &root)
     // serves when there is none beside.
     SearchPage page;
     Continuation inside;
+    Skipped skipped;
     for (const json &item : *items) {
         if (const json *section = child(item, "itemSectionRenderer")) {
-            appendVideos(*section, page.results, inside);
+            appendVideos(*section, page.results, inside, skipped);
+            continue;
+        }
+        const Continuation continuation = continuationOf(item);
+        if (continuation.token.empty()) {
+            skipped.unknown = true; // a section of a kind the reader does not know
         } else if (page.next.token.empty()) {
-            page.next = continuationOf(item);
+            page.next = continuation;
         }
     }
     if (page.next.token.empty()) {
@@ -170,11 +223,18 @@ Result<SearchPage> readSearchResponse(const json &root)
         page.visitorData = std::move(visitorData);
     }
     // YouTube counts results, yet none is a video the library can read: the
-    // results have moved into a renderer it does not know. Saying "nothing
-    // found" would keep every caller from falling back to another resolver.
-    // Only a first page says so; a further page with nothing in it is the end.
-    if (firstPage && page.results.empty() && readInt(root, "estimatedResults") > 0) {
-        return {{Error::Parse, "The search response counts results but holds no video the library can read"}, {}};
+    // results may have moved into a renderer it does not know. Saying
+    // "nothing found" would keep every caller from falling back to another
+    // resolver. Only a first page says so; a further page with nothing in it
+    // is the end. A query that matches a channel and no video holds nothing
+    // but the channel, which is no alarm; and a page that leads on gets its
+    // next page read before the alarm sounds (see SearchPage::unreadable).
+    if (kind == SearchPageKind::First && page.results.empty() && countsResults(root)) {
+        page.counted = true;
+        page.unreadable = skipped.unknown || !skipped.known;
+        if (page.unreadable && page.next.token.empty()) {
+            return {{Error::Parse, UNREADABLE_SEARCH}, {}};
+        }
     }
     return {{}, std::move(page)};
 }
@@ -195,7 +255,7 @@ HttpRequest searchRequest(const ClientDef &client, const std::string &query, con
     return apiRequest(client, "search", language, visitorData, fields);
 }
 
-Result<SearchPage> parseSearchResponse(const std::string &body)
+Result<SearchPage> parseSearchResponse(const std::string &body, SearchPageKind kind)
 {
     const json root = json::parse(body, nullptr, false);
     if (root.is_discarded() || !root.is_object()) {
@@ -203,7 +263,7 @@ Result<SearchPage> parseSearchResponse(const std::string &body)
     }
     // The reads check types as they go; this is the net under them.
     try {
-        return readSearchResponse(root);
+        return readSearchResponse(root, kind);
     } catch (const json::exception &e) {
         return {{Error::Parse, std::string("The search response has an unexpected shape: ") + e.what()}, {}};
     }

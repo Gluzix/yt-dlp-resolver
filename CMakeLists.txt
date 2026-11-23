@@ -26,6 +26,7 @@ add_library(ytres STATIC
     include/ytres/http.h
     src/ascii.h
     src/json_read.h
+    src/utf8.h
     src/url_parse.h src/url_parse.cpp
     src/format_pick.cpp
     src/curl_http_client.h src/curl_http_client.cpp
@@ -47,9 +48,15 @@ target_link_libraries(ytres PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
 
 # A harness for trying the library against live YouTube and recording
 # fixtures. It is a test rig, never the deliverable.
-add_executable(ytres_cli cli/main.cpp)
+add_executable(ytres_cli cli/main.cpp cli/arguments.h cli/scrub.h)
 target_link_libraries(ytres_cli PRIVATE ytres)
 ytres_compile_options(ytres_cli)
+if(MSVC)
+    # UTF-8 as the process code page, so that argv reaches main() as UTF-8
+    # rather than in the system's ANSI code page, with no Win32 call in
+    # main.cpp. The linker merges it into the manifest it writes anyway.
+    target_sources(ytres_cli PRIVATE cli/utf8.manifest)
+endif()
 
 option(YTRES_TESTS "Build the tests" ON)
 if(YTRES_TESTS)

@@ -12,12 +12,16 @@ const std::string_view VIDEO_PATH_PREFIXES[] = {"/shorts/", "/live/", "/embed/",
 
 // The playlists anyone can open, from yt-dlp's _PLAYLIST_ID_RE: a playlist
 // (PL), a channel's uploads (UU), an album (OLAK5uy_) and their kin, each
-// followed by MIN_PLAYLIST_ID_TAIL or more id characters.
-const std::string_view PUBLIC_PLAYLIST_PREFIXES[] = {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU"};
+// followed by MIN_PLAYLIST_ID_TAIL or more id characters. RDCLAK5uy_ is not
+// the regex's: it is YouTube Music's curated playlists, which start like a
+// mix but are the same for every viewer and list as any other (probed
+// 2026-11-23). It is checked before the personal prefixes below, RD among
+// them.
+const std::string_view PUBLIC_PLAYLIST_PREFIXES[] = {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU", "RDCLAK5uy_"};
 const std::size_t MIN_PLAYLIST_ID_TAIL = 10;
 
 // The rest of _PLAYLIST_ID_RE: lists YouTube makes for one viewer. A mix
-// (RD..., RDMM among them) is generated per viewer, and WL, LL... and LM are
+// (RD..., RDMM among them, but not RDCLAK5uy_ above) is generated per viewer, and WL, LL... and LM are
 // a signed-in viewer's Watch Later, Liked videos and liked music. TL..., the
 // regex's last prefix, goes with them, as docs/m4-plan.md decides.
 const std::string_view PERSONAL_PLAYLIST_PREFIXES[] = {"RD", "TL", "LL"};
@@ -126,6 +130,13 @@ bool isYoutubeHost(const std::string &host)
     return isPlainHost(host) && (host == "youtube.com" || endsWith(host, ".youtube.com"));
 }
 
+// youtube-nocookie.com, where an embedded player is served from: a host for
+// /embed/videoseries only.
+bool isNocookieHost(const std::string &host)
+{
+    return host == "youtube-nocookie.com" || host == "www.youtube-nocookie.com";
+}
+
 bool isPublicPlaylistId(std::string_view id)
 {
     if (!isIdText(id)) {
@@ -195,7 +206,11 @@ Result<std::string> parsePlaylistId(std::string_view urlOrId)
     } else {
         const Link link = splitLink(input);
         const std::string_view page = link.path.substr(0, link.path.find_first_of("?#"));
-        if (link.host == "youtu.be" || (isYoutubeHost(link.host) && (page == "/playlist" || page == "/watch"))) {
+        // An embedded playlist's player, /embed/videoseries?list=, names its
+        // list the same way.
+        const bool embedded = page == "/embed/videoseries" && (isYoutubeHost(link.host) || isNocookieHost(link.host));
+        if (link.host == "youtu.be" || embedded
+            || (isYoutubeHost(link.host) && (page == "/playlist" || page == "/watch"))) {
             id = queryValue(link.path, "list").value_or(std::string_view{});
         }
     }

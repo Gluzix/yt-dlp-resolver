@@ -8,9 +8,8 @@ against live YouTube on 2026-10-01. Branch: `m4/playlists`, stacked on
 `m3/search`. Kamil merges through pull requests; nothing is pushed by anyone
 but him.
 
-**Written without a build**, like M3: Kamil asked for no compilation and no
-test runs while it was coded. "Before this is done", at the bottom, says what
-that leaves open.
+Coded without a build, like M3, as Kamil asked; first built and verified on
+2026-11-23 (see "Verified", at the bottom).
 
 ## What the bot needs
 
@@ -71,6 +70,18 @@ class Resolver
 // viewer; anything else is BadInput.
 Result<std::string> parsePlaylistId(std::string_view urlOrId);
 ```
+
+Also accepted since 2026-11-23: `/embed/videoseries?list=`, the link of an
+embedded playlist player, on a YouTube host or on `youtube-nocookie.com`,
+as yt-dlp's tab regex accepts it. The path stays case-sensitive, as
+YouTube's paths are.
+
+Changed on 2026-11-23, after the first build: `RDCLAK5uy_` followed by ten
+or more id characters is public too. It is YouTube Music's curated playlists
+("The Hit List"), which users share from music.youtube.com; they start like a
+mix but are the same for every viewer, and browse `VL<id>` lists them as the
+web client like any other playlist (52 of 52, the same order as yt-dlp). The
+public prefixes are checked first, so every other `RD...` stays a mix.
 
 The prefixes come from yt-dlp's `_PLAYLIST_ID_RE`. Reuse the host and scheme
 handling `parseVideoId()` already has, and `queryValue()` for `list=`.
@@ -200,11 +211,25 @@ Without the array the reader cannot tell the answer from a first page, finds
 no section list in the stub `contents`, and fails it, where yt-dlp would take
 it for the end of the list.
 
-**Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
-does for every feed: `PlaylistPage` carries the page's
+Narrowed on 2026-11-23, after the first build: "yields no entry" meant "keeps
+no entry", so a first page whose videos were all dropped as `[Private video]`,
+`[Deleted video]` or unplayable was `Parse`, and its continuation, lost with
+it, was never followed. The rule now asks whether the page held a video in a
+layout the reader knows (a `lockupViewModel` of `LOCKUP_CONTENT_TYPE_VIDEO`,
+or a `playlistVideoRenderer`) with a valid video id, kept or dropped. A video
+whose id is missing or invalid does not count, so a moved or renamed id field
+still gives `Parse`. Such a page is Ok, with its
+continuation, and `MAX_EMPTY_PLAYLIST_PAGES` bounds what follows. A first page
+of nothing but lockups that are no video (playlists, channels) under a count
+above 0 stays `Parse`: a playlist of videos would not hold only those, and a
+renamed content type would look exactly like it.
+
+**Visitor data across pages**, as M3 does for search and as yt-dlp's
+`_entries` does for playlists: `PlaylistPage` carries the page's
 `responseContext.visitorData` when it passes `visitorDataRefusal()`
-(`src/visitor_data.h`), and the loop sends it with the next page only when
-the cache holds nothing. It is never written into the cache.
+(`src/visitor_data.h`), and the loop sends the latest one with the
+following pages only when the cache holds nothing; a page that names none
+keeps the one before. It is never written into the cache.
 
 ## The loop (`Resolver::Impl::playlist` in `src/resolver.cpp`)
 
@@ -239,6 +264,7 @@ Real responses from 2026-10-01, scrubbed and trimmed, already in
 | `playlist_long_first.json` | `PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4`, 447 videos, first page cut to 3 entries and its continuation | title `Lex Fridman Podcast`, count 447, entries `s7d2d8FhevU` (13016 s), `NYFGCESmikA` (18951 s), `l6USUAIKJls` (11578 s); the continuation token starts `4qmFsgKBARIk` (the one to follow), not `4qmFsgJbEiRW` (the section-level one) |
 | `playlist_long_continuation.json` | its second page cut to 3 entries and the next continuation | `2yHr9DPnSzk` (5942 s), `r4wLXNydzeY` (12402 s), `JN3KPFbWCy8` (8207 s); a token starting `4qmFsgJ_EiRW`; no title, count 0 |
 | `playlist_missing.json` | a playlist that does not exist | `Unavailable`, "The playlist does not exist." |
+| `playlist_music_curated.json` | added 2026-11-23: `RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs`, YouTube Music's "The Hit List", 52 videos on one page, cut to 3 | title `The Hit List`, count 52, `78wrful9cVU` (251 s), `mw3kSNIxjqo` (313 s), `nUsrYVxrDwI` (422 s); no continuation |
 
 The old layout cannot be recorded any more, so its test writes a small JSON
 by hand from the table above (a `playlistVideoListRenderer` with two
@@ -275,10 +301,35 @@ playlist section next to M3's search section).
 Mixes and personal lists. Channel tabs. Listing unavailable videos. A page
 size other than YouTube's hundred.
 
-## Before this is done
+## Verified, 2026-11-23
 
-Nothing here was compiled or run. When Kamil lifts that: build with 0
-warnings, `ctest`, `ytres_live_tests`, then live runs of
-`ytres_cli --playlist PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` (two
-pages) and of a playlist with fewer than a hundred videos, and a comparison
-with `yt-dlp --flat-playlist` on the same two.
+What this section once listed as still to do, done on the first build: all
+targets built with 0 warnings; `ctest` passed (167 cases before the fix
+round, 187 after it, 192 after the loop-trace fixes below) and so did `ytres_live_tests`, whose playlist case
+listed 150 of the long playlist's videos, now 450 of them (447 when the
+fixtures were recorded), in two requests in about 1.5 s.
+`ytres_cli --playlist PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` gave 150
+distinct entries and `PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk` its 7, title and
+count right; both matched `yt-dlp --flat-playlist` id for id and in order
+(150 of 150, 7 of 7), as did a channel's uploads and an album. A missing
+playlist was `Unavailable`, "The playlist does not exist.", and a mix id
+`BadInput`.
+
+The probing that followed the build found, and the fix round fixed: YouTube
+Music's curated `RDCLAK5uy_` lists were refused as mixes; `/embed/videoseries`
+links were refused; a first page whose videos were all private or deleted
+was `Parse`; and a malformed length badge read as hours. The dated notes
+under "Which playlist" and "A layout the reader does not know" say what
+changed.
+
+When the review of pull request 7 asked for it, the paging loop was traced
+again, offline: by hand, exit by exit, against `ytres.h` and this plan, and
+by brute force, 641,849 generated runs in both layouts (every sequence up
+to three pages, reduced alphabets to five, the 200-page cap, 30,000 random
+long sequences, deadlines) in a Debug and an optimized build. No invariant
+failed. The four findings of that round, shared with search's and all
+fixed in it (see `docs/m3-plan.md`, "Verified"), touched the playlist in
+two: a cancel check that threw before a later page lost the title, count
+and entries already read, and the visitor data a later page carries is the
+latest an earlier page named; the walkthrough now also says that a first
+page of only private or deleted videos is Ok and leads on.

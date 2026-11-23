@@ -125,6 +125,58 @@ TEST_CASE("playability failures map to specific errors")
     }
 }
 
+TEST_CASE("a private video visionos files under messages[] is Unavailable, not a sign-in wall")
+{
+    // What visionos answered for a private video on 2026-11-23.
+    const std::string visionos =
+        R"({"status":"LOGIN_REQUIRED","reason":"Please sign in",)"
+        R"("messages":["This is a private video. Please sign in to verify that you may see it."]})";
+    const auto result = parsePlayerResponse(playerResponse(visionos, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(result.status.code == Error::Unavailable);
+    CHECK(result.status.message == "Private video");
+
+    // Messages that are not strings are read past, and the bot check still
+    // reads as one with messages beside it.
+    const std::string botCheck = R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot",)"
+                                 R"("messages":[7,null,{"x":1},"Sign in to continue"]})";
+    CHECK(parsePlayerResponse(playerResponse(botCheck, "{}"), "dQw4w9WgXcQ", 0).status.code == Error::BotCheck);
+    const std::string wall = R"({"status":"LOGIN_REQUIRED","reason":"Please sign in","messages":"not an array"})";
+    const auto signIn = parsePlayerResponse(playerResponse(wall, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(signIn.status.code == Error::LoginRequired);
+    CHECK(signIn.status.message == "Please sign in");
+}
+
+TEST_CASE("a video visionos cannot play but still describes is NoFormats, so the caller moves on")
+{
+    // What visionos answered for a public video made for kids, e_04ZrNroTo,
+    // on 2026-11-23: no subreason, and videoDetails for the video asked about.
+    const std::string kids = R"({"status":"UNPLAYABLE","reason":"This video is not available"})";
+    const auto described = parsePlayerResponse(playerResponse(kids, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(described.status.code == Error::NoFormats);
+    CHECK(described.status.message
+          == "The client cannot play this video, which YouTube still describes (made for kids?): This video is not available");
+
+    // The same answer without videoDetails, or about another video, says
+    // nothing about the client: the video is the problem.
+    const std::string bare = R"({"playabilityStatus":)" + kids + "}";
+    CHECK(parsePlayerResponse(bare, "dQw4w9WgXcQ", 0).status.code == Error::Unavailable);
+    CHECK(parsePlayerResponse(playerResponse(kids, "{}", "aaaaaaaaaaa"), "dQw4w9WgXcQ", 0).status.code
+          == Error::Unavailable);
+
+    // A block with a reason of its own stays Unavailable, videoDetails or not.
+    const char *const blocked[] = {
+        R"({"status":"UNPLAYABLE","reason":"This video is not available","errorScreen":{"playerErrorMessageRenderer":)"
+        R"({"subreason":{"simpleText":"It was blocked due to the claimed content by SME"}}}})",
+        R"({"status":"UNPLAYABLE","reason":"It was blocked due to the claimed content by SME"})",
+        R"({"status":"ERROR","reason":"This video is not available"})",
+    };
+    for (const char *playability : blocked) {
+        const std::string shown = playability;
+        CAPTURE(shown);
+        CHECK(parsePlayerResponse(playerResponse(playability, "{}"), "dQw4w9WgXcQ", 0).status.code == Error::Unavailable);
+    }
+}
+
 TEST_CASE("a region block spelled out only in errorScreen's subreason is GeoBlocked")
 {
     const std::string runs = R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"

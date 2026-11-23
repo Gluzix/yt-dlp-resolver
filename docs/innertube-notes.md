@@ -15,6 +15,10 @@ _DEFAULT_CLIENTS        = ('visionos', 'web')
 _DEFAULT_JSLESS_CLIENTS = ('visionos',)
 ```
 
+On 2026-11-23 the first of these read `('tv_samsung', 'visionos', 'web')`;
+the second, the one that matters here, was unchanged. See "Verified live",
+"M3 and M4, the first build".
+
 The client definition, verbatim:
 
 ```python
@@ -128,6 +132,22 @@ PO Token.
   `AGE_CHECK_REQUIRED` and `AGE_VERIFICATION_REQUIRED`; anything else
   (`ERROR`, `UNPLAYABLE`, `LOGIN_REQUIRED`, `CONTENT_CHECK_REQUIRED`, ...) is
   a failure. `playabilityStatus.reason` is the human-readable message.
+- `playabilityStatus.messages[]`, strings, can carry what the reason leaves
+  out. On 2026-11-23 `visionos` answered a private video (`U5fGeKfg9W8`) with
+  `LOGIN_REQUIRED`, reason "Please sign in", no subreason, no `videoDetails`,
+  and messages `["This is a private video. Please sign in to verify that you
+  may see it."]`; `web` gave the reason "Private video". The library reads
+  messages[] when it tells failures apart, so both are `Unavailable`.
+- A video made for kids, the same day: `visionos` answered `e_04ZrNroTo`
+  (public, plays in a browser) with `UNPLAYABLE`, reason "This video is not
+  available", no subreason, and still a `videoDetails` with its id, title and
+  `lengthSeconds`; `web` was refused as usual. yt-dlp's `_video.py` notes that
+  `visionos` and `android_vr` cannot play made-for-kids videos and retries
+  them on `web_embedded` or `ios_producer`. The library reads `UNPLAYABLE`
+  with that reason, no subreason and a matching `videoDetails` as the
+  client's limit, `NoFormats`, so the ladder and the caller move on; a gone
+  or private video comes without `videoDetails` and stays `Unavailable`.
+  yt-dlp 2026.08.19 could not play it that day either.
 - Sanity check yt-dlp does and so must we: `videoDetails.videoId` must equal
   the requested id. YouTube occasionally answers with a different video.
 - `videoDetails`: `videoId`, `title`, `author`, `channelId`, `lengthSeconds`
@@ -259,6 +279,73 @@ M2, the same day and line:
   second while connecting, and after 120 to 127 ms through the multi
   interface's 20 ms polls.
 
+M3 and M4, the first build, 2026-11-23, same PC and line. Search and
+playlists were written and reviewed without a compiler; this was their first
+build and their first run, and the fix round that followed it.
+
+- **The build.** A clean rebuild of all four targets at `/W4 /permissive-`:
+  0 warnings, 0 errors. `ytres_tests` passed 167 cases and 1244 assertions
+  before the fix round, 187 and 1560 after it. `ytres_live_tests` passed 7
+  cases and 368 assertions both times: a cancel at 100 ms returned at 108 to
+  126 ms, connect or resolve; a search was Ok in 591 to 612 ms, five videos,
+  one request; the long playlist listed 150 of 450 videos in two requests in
+  about 1.5 s; the ladder fell through `web` to `visionos`.
+- **The harness.** `--search "rick astley never gonna give you up" --max 25`
+  gave 25 distinct videos over two pages. `--playlist
+  PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` gave 150 distinct entries;
+  the 7-video `PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk` its title and count; a
+  playlist that does not exist `Unavailable`, "The playlist does not
+  exist."; a mix id `BadInput`. A `--dump` of a live search page and of a
+  live playlist page held no address but 203.0.113.7 and no visitor data but
+  `FIXTURE`, and had the shape of the recorded fixtures.
+- **Against yt-dlp 2026.08.19.** `tools/differential.py`: 7 videos, 0
+  mismatched, ytres about 1.0 s each against 2.0 to 4.5 s for yt-dlp. Both
+  playlists listed the same ids in the same order as `yt-dlp
+  --flat-playlist` (7 of 7, 150 of 150), as did a channel's uploads
+  (`UU...`, 120 of 120), an album (`OLAK5uy_...`, 10 of 10) and, once the
+  library took its prefix, a YouTube Music curated list (`RDCLAK5uy_...`,
+  52 of 52). Searches shared 6 or 7 of their first 10 results with yt-dlp's,
+  the first one the same, in an order that differs a little, as expected.
+- **The long playlist has grown.** `PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4`
+  counts 450 videos now; its fixtures, recorded on 2026-10-01, say 447 and
+  keep saying it.
+- **Upstream drift.** yt-dlp master that day: `_DEFAULT_CLIENTS` is
+  `('tv_samsung', 'visionos', 'web')`, `tv_samsung` new and first.
+  `_DEFAULT_JSLESS_CLIENTS` is still `('visionos',)`, the `visionos` row is
+  unchanged, `web`'s `clientVersion` is still `2.20260708.00.00`, and
+  `_SEARCH_PARAMS` is still `EgIQAfABAQ==`. The `tv_samsung` row:
+
+  ```python
+  'tv_samsung': {
+      'INNERTUBE_CONTEXT': {
+          'client': {
+              'clientName': 'TVHTML5',
+              'clientVersion': '5.20260707',
+              'deviceMake': 'Samsung',
+              'deviceModel': 'UKS9800',
+              'userAgent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1',
+              'osName': 'Tizen',
+              'osVersion': '2.4.0',
+          },
+      },
+      'INNERTUBE_CONTEXT_CLIENT_NAME': 7,
+      'SUPPORTS_COOKIES': True,
+  },
+  ```
+
+  It has no `'REQUIRE_JS_PLAYER': False`, so it needs the JS player: of no
+  use to this library, which has none. A build of the library from
+  2026-09-24 still resolved `dQw4w9WgXcQ` and `jNQXAC9IVRw` that day.
+- **What the probing found**, each recorded where it belongs above or
+  below: `ytres_cli`'s arguments came in the ANSI code page (1250), so a
+  Polish query reached YouTube with U+FFFD in it and only YouTube's
+  correction found the right videos (fixed with a UTF-8 manifest; a query
+  that is not UTF-8 now costs a warning in the log); a private video on
+  `visionos` says "Please sign in" and files the reason under
+  `playabilityStatus.messages[]`; a video made for kids is `UNPLAYABLE` on
+  `visionos` though YouTube describes it; `RDCLAK5uy_` lists are public; and
+  YouTube announces a corrected query with a `showingResultsForRenderer`.
+
 ## Search and playlists
 
 Read from yt-dlp's `_search.py`, `_tab.py` and `_base.py` at master and
@@ -310,6 +397,17 @@ POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
   being `LIVE`, and takes `upcomingEventData` to mean an upcoming one.
 - A search with no results: `estimatedResults` is `"0"` and the item section
   holds one `backgroundPromoRenderer`. No continuation.
+- A corrected query (seen 2026-11-23): YouTube searches for its own spelling
+  and says so in a `showingResultsForRenderer` first in the item section,
+  ahead of the `videoRenderer`s: `showingResultsFor` ("Showing results
+  for"), `correctedQuery` (runs, the corrected words in italics),
+  `searchInsteadFor` and `originalQuery` (`simpleText`, what was sent). A
+  misspelled query gave that card and 20 videos; a query that reached
+  YouTube with U+FFFD in it (before `ytres_cli` read its arguments as UTF-8)
+  gave the same card with the right spelling, which is how it still found
+  the right videos. A nonsense query gave a `didYouMeanRenderer` and the
+  `backgroundPromoRenderer`, `estimatedResults` `"0"`. The library reads past
+  these cards like any item that is not a `videoRenderer`.
 - Sizes: a first page is about 265 KB of JSON (24 KB on the wire with gzip),
   0.5 s.
 - Every result carries preview-thumbnail urls with `&ip=<the requesting
@@ -317,9 +415,17 @@ POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
   covers them.
 - `estimatedResults` is a string on every page, first or further:
   `"584471"` for the artist, `"0"` for the empty search. The library takes
-  a first page that counts results but holds no `videoRenderer` as a sign
-  that the results moved into a renderer it does not read, and fails it
-  with `Parse` rather than report nothing found.
+  any number but zero, or any string with a digit other than 0, as a count
+  (so `"1,234"` would still count), and it takes a first page that counts
+  results but holds no `videoRenderer` as a sign that the results moved into
+  a renderer it does not read, and fails it with `Parse` rather than report
+  nothing found. Since 2026-11-23 two such pages are spared: one holding
+  nothing but a `channelRenderer` or the empty search's
+  `backgroundPromoRenderer` (a query that names a channel and no video) is
+  an empty list, and one that offers a continuation has that page read
+  first, `Parse` only if it brings no video either. A correction card or a
+  shelf alone does not spare a page: they come beside videos, and alone they
+  may mean the videos moved.
 
 Read in the M3 review of yt-dlp's `_search_results` and its helpers, not
 probed again:
@@ -332,11 +438,16 @@ probed again:
   them. The library fetches no page for a search: YouTube answered the bare
   request on 2026-10-01, and the page would cost as much as the search. It
   sends the visitor data a resolve has cached, when there is some.
-- **Visitor data across pages.** yt-dlp sends the previous page's
-  `responseContext.visitorData` as `X-Goog-Visitor-Id` on page 2 and later.
-  The library does the same when it has no cached visitor data, after the
-  same check the watch page's value passes (`src/visitor_data.h`), and does
-  not cache it.
+- **Visitor data across pages.** Read from yt-dlp's source on 2026-11-23:
+  for page 2 and later, `_search_results` (`_tab.py`) passes only the page
+  before's `responseContext.visitorData`, and `generate_api_headers`
+  (`_base.py`) sends it as `X-Goog-Visitor-Id`, falling back, when that
+  page named none, on the visitor data of the ytcfg page yt-dlp downloaded
+  before searching. The library downloads no such page, so when it has no
+  cached visitor data it sends the latest value a page named, a page
+  without one keeping the previous value: its own choice, by the rule that
+  an old visitor id beats none. Each value passes the same check the watch
+  page's does (`src/visitor_data.h`) and is not cached.
 - **Length.** When a `videoRenderer` has no `lengthText`, yt-dlp reads the
   text of its `thumbnailOverlays[].thumbnailOverlayTimeStatusRenderer`; so
   does the library, taking the first.
@@ -360,7 +471,12 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
 - Playlist ids, from yt-dlp's `_PLAYLIST_ID_RE`:
   `(?:(?:PL|LL|EC|UU|FL|RD|UL|TL|PU|OLAK5uy_)[0-9A-Za-z-_]{10,}|RDMM|WL|LL|LM)`.
   `RD...` are mixes generated per viewer, `WL`, `LL` and `LM` are a signed-in
-  viewer's own lists.
+  viewer's own lists. One `RD` family is no mix: `RDCLAK5uy_...` is a YouTube
+  Music curated playlist ("The Hit List", `RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs`),
+  the same for every viewer. On 2026-11-23 browse `VLRDCLAK5uy_...` answered
+  it as the web client like any playlist, in the lockup layout: 52 entries on
+  one page, no continuation, the same ids in the same order as
+  `yt-dlp --flat-playlist`.
 - **The layout changed.** yt-dlp still reads the old one,
   `playlistVideoListRenderer.contents[]` of `playlistVideoRenderer` with a
   `continuationItemRenderer` at the end, but both playlists probed (an
@@ -434,6 +550,12 @@ helpers in `_tab.py`), not probed again:
   answered on 2026-10-01, leaving out the unavailable videos the bot drops
   anyway. It sends the visitor data a resolve has cached, when there is
   some.
+- **Visitor data across pages.** yt-dlp's `_entries` (`_tab.py`, read on
+  2026-11-23) takes each page's `responseContext.visitorData` for the next
+  request and keeps the previous value when a page names none, so a later
+  page carries the latest value a page named. The library does the same
+  when it has no cached visitor data, after the same check as for search,
+  and does not cache it.
 - **Alerts.** yt-dlp fails an answer that carries any alert of type
   `error`, whatever else it holds, with the last such alert's text
   (`_report_alerts` in `_base.py`). The library fails an answer with no

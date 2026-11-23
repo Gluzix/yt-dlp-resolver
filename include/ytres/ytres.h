@@ -215,22 +215,37 @@ public:
     // Up to max videos for query, best match first; an empty list when
     // YouTube finds none. One request for the first twenty or so, one more
     // per further page. Channels, playlists and shelves in the results are
-    // skipped. max of 0, or a query that is empty or all spaces, is BadInput.
+    // skipped, and a video YouTube hands out twice is listed once. A page of
+    // nothing but videos already listed, or a continuation already followed,
+    // ends the search with a warning in the log: the feed is going round.
+    // A search reads ten pages at most, about two hundred videos, whatever
+    // max asks for; one cut there comes back Ok, with a warning in the log.
+    // max of 0, or a query that is empty or all ASCII white space, is
+    // BadInput (a Unicode space such as U+00A0 is sent). A query
+    // that is not valid UTF-8 is sent all the same, with U+FFFD in place of
+    // its broken bytes, and a warning in the log says so.
     // A first page where YouTube counts results but holds none the library
     // can read is Parse, not an empty list: YouTube has changed its answer,
     // and the caller should fall back rather than report nothing found.
+    // A first page with no video that leads on to a further page is judged
+    // by that page: its videos are the results, and if it has none either
+    // the search is Parse - unless page one held nothing but a channel (a
+    // query that names a channel and no video) or the empty search's promo,
+    // which is an empty list, as is such a page with no further page.
     // Asked as the web client whatever Options::clients says: that list is
     // the player's ladder. Cached visitor data is sent when there is some,
     // but none is fetched for a search; with none cached, a later page
-    // carries the visitor data YouTube named on the page before it, as
-    // yt-dlp sends it, and that value is not cached.
+    // carries the latest visitor data YouTube named on an earlier page (the
+    // library's choice: yt-dlp falls back on a page it downloads first), and
+    // that value is not cached.
     // When a later page fails, the result carries that failure and the
     // videos read so far.
     Result<std::vector<SearchResult>> search(std::string_view query, std::size_t max, const Request &request = {});
 
     // The first max videos of a public playlist, in its order, with its
     // title and how many videos YouTube says it has. Accepts a youtube.com
-    // /playlist or /watch link, or a youtu.be link, that carries list=, or a
+    // /playlist or /watch link, an /embed/videoseries link there or on
+    // youtube-nocookie.com, or a youtu.be link, that carries list=, or a
     // bare playlist id. One request per hundred videos, and no more requests
     // than max needs: a 6000-video playlist asked for its first 50 costs one.
     // Videos YouTube hides as unavailable are not listed, nor is one titled
@@ -241,19 +256,22 @@ public:
     // times in a row.
     // A playlist that does not exist is Unavailable, with YouTube's words,
     // as is any whose answer is an error alert instead of a playlist. A mix
-    // (RD...), Watch Later, Liked videos and the like are BadInput: they
+    // (RD..., but for YouTube Music's curated RDCLAK5uy_ lists, which are
+    // public), Watch Later, Liked videos and the like are BadInput: they
     // belong to a signed-in viewer. max of 0 is BadInput. A first page where
-    // YouTube counts videos but holds none the library can read is Parse,
-    // not an empty playlist: YouTube has changed its answer, and the caller
-    // should fall back rather than report the playlist empty.
+    // YouTube counts videos but holds none the library can read (not merely
+    // none it may list: private and deleted videos are read, and dropped)
+    // is Parse, not an empty playlist: YouTube has changed its answer, and
+    // the caller should fall back rather than report the playlist empty.
     // totalCount is read from YouTube's English text ("447 episodes"), so
     // with an Options::language other than "en" it may be wrong or 0 - and
     // at 0, a first page the library cannot read passes for an empty
     // playlist instead of failing as Parse.
     // Asked as the web client whatever Options::clients says. Cached visitor
     // data is sent when there is some, but none is fetched for a playlist;
-    // with none cached, a later page carries the visitor data YouTube named
-    // on the page before it, as yt-dlp sends it, and that value is not cached.
+    // with none cached, a later page carries the latest visitor data YouTube
+    // named on an earlier page, as yt-dlp's _entries does, and that value is
+    // not cached.
     // When a later page fails, the result carries that failure and the
     // playlist as read so far: its title, its count and the entries before
     // the page that failed.

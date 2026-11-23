@@ -53,8 +53,11 @@
 // - A first page with no entry it can read, while the playlist counts
 //   videos, is Parse, not an empty playlist: the entries have moved into a
 //   renderer the library does not know, and "empty" would keep the caller
-//   from falling back to another resolver. A further page with nothing
-//   readable is only the end.
+//   from falling back to another resolver. A first page whose videos are
+//   all dropped - private, deleted, unplayable - is read right, and is Ok
+//   with its continuation; one of nothing but other lockups (playlists,
+//   channels) is still Parse. A further page with nothing readable is only
+//   the end.
 // - A page's visitor data is read under the same rule as the watch page's
 //   before it can become the next page's X-Goog-Visitor-Id.
 // - parsePlaylistResponse() is pure, like every reader of YouTube's answers.

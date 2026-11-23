@@ -221,7 +221,7 @@ TEST_CASE("a search finds videos in one request, each with an id, a title and a 
     }
 }
 
-TEST_CASE("a playlist of 447 videos lists its first 150 in two requests, each with an id and a title")
+TEST_CASE("a playlist of over 150 videos lists its first 150 in two requests, each with an id and a title")
 {
     // What notices YouTube changing the playlist layout again, as it did
     // before 2026-10-01: the offline tests replay what it was that day.

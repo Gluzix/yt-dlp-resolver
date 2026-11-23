@@ -1,8 +1,8 @@
 # How the resolver works, step by step
 
-A reading guide to the code on `m2/hardening`, written for the session where
-we go through it together, with section 4 added for M3's search on
-`m3/search` and section 5 for M4's playlists on `m4/playlists`. Read it top
+A reading guide to the code on `master`, written for the session where we go
+through it together: sections 1-3 and 6-11 cover M2, section 4 M3's search
+and section 5 M4's playlists. Read it top
 to bottom once; then open the files it names and read them in the same
 order. Every section ends with the questions worth asking about it, which
 is where the session will spend its time.
@@ -213,9 +213,8 @@ ytres::Result<std::vector<ytres::SearchResult>> found = resolver.search("Dawid P
 // the first result that is neither isLive nor isUpcoming is the one to play
 ```
 
-M3 was written without a build (see `docs/m3-plan.md`, "Before this is
-done"), so read this section as the design; the code has not met a compiler
-yet. The files:
+M3 was coded without a build and first built on 2026-11-23 (see
+`docs/m3-plan.md`, "Verified"). The files:
 
 ```
 src/search.*            the request and the reader of one page
@@ -236,9 +235,13 @@ ladder exists for the *player*, where clients differ in what YouTube lets
 them play. Search needs neither the player JavaScript nor a PO Token, and
 on 2026-10-01 YouTube answered it bare, so no watch page is fetched; if a
 resolve has cached visitor data, it goes along on every page. With none
-cached, page 2 and later carry the visitor data YouTube named on the page
-before (`responseContext.visitorData`), as yt-dlp does — checked by the
-same rule as the watch page's (`src/visitor_data.h`), and never cached.
+cached, page 2 and later carry the latest visitor data YouTube named on an
+earlier page (`responseContext.visitorData`; a page that names none keeps
+the one before) — checked by the same rule as the watch page's
+(`src/visitor_data.h`), and never cached. yt-dlp sends the page before's,
+and when that named none, the one from the ytcfg page it downloads before
+searching; the library downloads no page, so it keeps the latest a page
+named, since an old visitor id beats none.
 
 **Step 2 — the request.** `searchRequest()` hands two fields to
 `innertube::apiRequest()`, the builder every non-player InnerTube POST goes
@@ -260,7 +263,9 @@ bytes did not move.
 
 **Step 3 — the answer.** `parseSearchResponse()` finds one array: the
 first page's `sectionListRenderer.contents[]`, or a further page's
-`appendContinuationItemsAction.continuationItems[]`. In it sit item
+`appendContinuationItemsAction.continuationItems[]`, whichever the request
+asked for (the Resolver passes `SearchPageKind::First` or `Further`), so an
+answer that carried both could not hide the first page's videos. In it sit item
 sections, which hold the results, and *beside* them the continuation, whose
 token fetches the next page (`continuationOf()` reads it; it knows the
 three shapes YouTube uses, so playlists reuse it in section 5). Like yt-dlp,
@@ -281,15 +286,31 @@ which `estimatedResults` is above 0 but no `videoRenderer` can be read is
 otherwise come back "nothing found" — an answer the bot shows the user —
 instead of a failure that sends it to yt-dlp.
 
-**Step 4 — the loop.** Append results until `max`; while short of it, the
-page gave a continuation, the page brought at least one video and fewer
-than ten pages were read, send the continuation — the same `query` and
-`params` again, plus `continuation` and `clickTracking`, as yt-dlp does.
-Every page goes through `Impl::send()`, so the cancel check and the one
-deadline cover all of them. A failure on page one is that failure with an
-empty list; on a later page, it is that failure *with the videos read so
-far*: `Result` carries both, and a caller cancelled on page three can still
-use the first two.
+Two exceptions, both added after the first build. A first page with no
+video that leads on is not judged until the page after it has been read
+(`SearchPage::counted` and `unreadable` carry the verdict to the loop):
+that page's videos are the results, and if it has none either the search
+is `Parse` — unless page one held nothing but a channel (a query that names
+a channel and no video) or the empty search's promo, which is an empty
+list, as is such a page with no further page.
+
+**Step 4 — the loop.** Append results until `max`, skipping any id already
+listed: YouTube can hand out one video twice, on a page or across two, and
+a bot would queue it twice. While short of `max` and the page gave a
+continuation, send it — the same `query` and `params` again, plus
+`continuation` and `clickTracking`, as yt-dlp does. A page that brought no
+video ends the search, but for a first page that counts results: that one
+is followed once, which is how the exceptions above get their second page.
+Three guards stop a feed that goes round, each with a warning in the log:
+a page of nothing but videos already listed, a continuation token already
+sent, and the tenth page, a cap of the library's own (about two hundred
+videos); a search cut there is still Ok. Every page goes through
+`Impl::send()`, so the cancel check and the one deadline cover all of
+them. A failure on page one is that failure with an empty list; on a later
+page, it is that failure *with the videos read so far*: `Result` carries
+both, and a caller cancelled on page three can still use the first two.
+That holds for a cancel check that throws, too: `send()` turns it into
+`Internal` for that page alone.
 
 *Questions: why is "Ok, but empty" a more dangerous answer than an error
 when YouTube changes something, and why does the `estimatedResults` rule
@@ -309,8 +330,8 @@ ytres::Result<ytres::Playlist> list = resolver.playlist("https://www.youtube.com
 // list.value.title, list.value.totalCount, list.value.entries[i].videoId / title / durationSeconds
 ```
 
-M4, like M3, was written without a build (see `docs/m4-plan.md`, "Before
-this is done"): read this section as the design too. It stands almost
+M4, like M3, was coded without a build and first built on 2026-11-23 (see
+`docs/m4-plan.md`, "Verified"). It stands almost
 entirely on M3's groundwork — `apiRequest()`, `continuationOf()`,
 `json_read.h` — and adds:
 
@@ -322,10 +343,11 @@ src/resolver.cpp        Impl::playlist(): the loop
 
 **Step 0 — the guards and the id.** Search's opening (the `try`/`catch`,
 the moved-from check, `callDeadline()`), then `max == 0` is `BadInput`,
-then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, or
-of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
+then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, of
+an `/embed/videoseries` link, or of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
 `_PLAYLIST_ID_RE` pass — `PL`, `UU` (a channel's uploads), `OLAK5uy_` (an
-album) and their kin. A mix (`RD...`), Watch Later (`WL`) or Liked videos
+album) and their kin, plus `RDCLAK5uy_` (YouTube Music's curated lists,
+public despite their `RD`). A mix (any other `RD...`), Watch Later (`WL`) or Liked videos
 (`LL`) is `BadInput` with a message that says it needs a signed-in viewer:
 YouTube makes those lists for one person, and nothing the library could
 fetch would be the user's list. The scheme and host checks are the ones
@@ -373,7 +395,9 @@ are what the bot filters today. A playlist that does not exist answers
 HTTP 200 with no contents and an `ERROR` alert: that is `Unavailable`,
 with YouTube's own sentence. And search's guard returns: a first page that
 counts videos but holds no readable entry is `Parse`, not an empty
-playlist.
+playlist. "Readable" means a video in a layout the reader knows with a
+valid id, kept or dropped: a first page of nothing but private or deleted
+videos is Ok, with no entries, and leads on to the rest of the list.
 
 **Step 3 — the loop.** As for search: append until `max`, and follow the
 continuation while short of it, so the first 50 videos of a 6000-video
@@ -390,8 +414,8 @@ comes back with the playlist read so far.
 
 *Questions: why does the reader ignore the continuation beside the item
 section, and how would a test notice if it took that one? Why is the count
-what tells "empty" from "unreadable"? Why may a playlist page with no
-entries lead on when a search page with none may not?*
+what tells "empty" from "unreadable"? Why may any playlist page with no
+entries lead on, but only a counted first search page?*
 
 ## 6. Errors, and what the bot should do with them
 
@@ -529,8 +553,10 @@ before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
-M3's `search_test.cpp` and 167 with M4's `playlist_test.cpp` (neither yet
-compiled); `ctest` runs only this target.
+M3's `search_test.cpp`, 167 with M4's `playlist_test.cpp`, 187 after the
+fix round of the first build, which added `utf8_test.cpp` and
+`cli_test.cpp` (the harness's argument parser and dump scrubber), and 192
+after the loop traces of pull request 7; `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish
@@ -554,8 +580,9 @@ YouTube starting to require a header we do not send?*
 
 ## 10. Build
 
-- `CMakeLists.txt` defines three targets: `ytres` (a static library),
-  `ytres_cli` and `ytres_tests`; `tests/CMakeLists.txt` adds
+- `CMakeLists.txt` defines `ytres` (a static library) and `ytres_cli`, which
+  on MSVC carries a manifest that makes UTF-8 its code page, so its
+  arguments arrive as UTF-8; `tests/CMakeLists.txt` adds `ytres_tests` and
   `ytres_live_tests`. C++17, `/W4 /permissive- /we4715 /utf-8`, zero
   warnings kept as a hard rule. `/utf-8` makes source and string literals
   UTF-8 regardless of the machine's code page.
@@ -587,7 +614,9 @@ one failed at some point:
    seen the project — build command, conventions, branch, what to report.
    The pre-planned fallback ("if you get bot-checked, do this") is why the
    first live run did not stall.
-3. **Implement**: logical commits, each built and tested before it lands.
+3. **Implement**: logical commits, each built and tested before it lands -
+   except M3 and M4, which were coded without a compiler, as asked, and
+   first built on 2026-11-23.
 4. **Review**: a second agent reads the diff against the plan and, crucially,
    *probes* the built library with throwaway programs. That is how the
    age-gate-as-bot-check bug, the wrong-language dub, the deadline overflow
@@ -604,11 +633,6 @@ author reads.
 
 ## Where to go next
 
-- **M3, search**: written (section 4), not yet built. Its first step is
-  the build and the runs under "Before this is done" in `docs/m3-plan.md`.
-- **M4, playlists**: written (section 5), not yet built either. Its first
-  step is the build and the runs under "Before this is done" in
-  `docs/m4-plan.md`, a comparison with `yt-dlp --flat-playlist` among them.
 - **M6, the bot**: an `IMediaResolver` seam in the bot with two
   implementations, native first and yt-dlp as the permanent fallback. The
   bot's `ResolvedMedia`/`PlaylistListing` types are already the right shape.

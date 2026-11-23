@@ -191,6 +191,9 @@ TEST_CASE("every playlist link form gives the playlist id")
         "www.youtube.com/playlist?list=" + id,
         "HTTPS://WWW.YouTube.com/playlist?list=" + id,
         "https://www.youtube.com/playlist?list=" + id + "#top",
+        "https://www.youtube.com/embed/videoseries?list=" + id,
+        "https://www.youtube-nocookie.com/embed/videoseries?list=" + id,
+        "https://youtube-nocookie.com/embed/videoseries?si=FIXTURE&list=" + id,
         id,
         "  " + id + "\n",
     };
@@ -204,7 +207,7 @@ TEST_CASE("every playlist link form gives the playlist id")
 
 TEST_CASE("every public kind of playlist id is accepted, with ten or more characters after its prefix")
 {
-    for (const char *prefix : {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU"}) {
+    for (const char *prefix : {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU", "RDCLAK5uy_"}) {
         const std::string id = std::string(prefix) + "0123456789";
         CAPTURE(id);
         const auto result = parsePlaylistId(id);
@@ -214,12 +217,26 @@ TEST_CASE("every public kind of playlist id is accepted, with ten or more charac
     }
 }
 
+TEST_CASE("YouTube Music's curated playlists are public, though they start like a mix")
+{
+    const std::string id = "RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs";
+    for (const std::string &input : {id, "https://music.youtube.com/playlist?list=" + id,
+                                     "https://www.youtube.com/playlist?list=" + id}) {
+        CAPTURE(input);
+        const auto result = parsePlaylistId(input);
+        REQUIRE(result);
+        CHECK(result.value == id);
+    }
+}
+
 TEST_CASE("a mix, Watch Later, Liked videos and the other lists made for one viewer are BadInput, and say so")
 {
     const char *const personal[] = {
         "RDdQw4w9WgXcQ",
         "RDMM",
         "RDMMdQw4w9WgXcQ",
+        "RDAMVMdQw4w9WgXcQ",
+        "RDCLAK5uy_012345678", // nine characters after the curated prefix: no such list, so a mix
         "WL",
         "LL",
         "LM",
@@ -263,6 +280,10 @@ TEST_CASE("anything that is not a public playlist link or id is BadInput")
         "https://user@www.youtube.com/playlist?list=" + id,
         "https://www.youtube.com:8080/playlist?list=" + id,
         "ftp://www.youtube.com/playlist?list=" + id,
+        "https://www.youtube-nocookie.com/playlist?list=" + id, // the embed host serves embeds only
+        "https://www.youtube.com/embed/other?list=" + id,
+        "https://www.youtube.com/embed/videoseries/x?list=" + id,
+        "https://evil.example/embed/videoseries?list=" + id,
     };
     for (const std::string &input : rejected) {
         CAPTURE(input);
@@ -347,6 +368,31 @@ TEST_CASE("the recorded small playlist: its title, its count, seven videos and n
     // section, which loads something else: there is no next page.
     CHECK(page.value.next.token.empty());
     CHECK(page.value.visitorData == "FIXTURE");
+}
+
+TEST_CASE("the recorded YouTube Music curated playlist reads like any other")
+{
+    // RDCLAK5uy_..., recorded on 2026-11-23 and cut to its first three entries.
+    const std::string id = "RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs";
+    const auto page = parsePlaylistResponse(readFixture("playlist_music_curated.json"), id);
+    REQUIRE(page);
+    CHECK(page.value.title == "The Hit List");
+    CHECK(page.value.totalCount == 52);
+    CHECK(idsOf(page.value.entries) == std::vector<std::string>{"78wrful9cVU", "mw3kSNIxjqo", "nUsrYVxrDwI"});
+    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{251, 313, 422});
+    REQUIRE_FALSE(page.value.entries.empty());
+    CHECK(page.value.entries[0].title == "Olivia Rodrigo - drop dead (Official Music Video)");
+    CHECK(page.value.next.token.empty()); // 52 videos fit one page
+
+    // Through the Resolver, from the link a user shares.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {readFixture("playlist_music_curated.json")};
+    const auto list = test.resolver.playlist("https://music.youtube.com/playlist?list=" + id, 50);
+    REQUIRE(list);
+    CHECK(list.value.playlistId == id);
+    CHECK(list.value.entries.size() == 3);
+    REQUIRE(test.http->requests.size() == 1);
+    CHECK(json::parse(test.http->requests[0].body)["browseId"] == "VL" + id);
 }
 
 TEST_CASE("the recorded first page of a long playlist: the continuation among the entries, not the one beside them")
@@ -503,9 +549,11 @@ TEST_CASE("a lockup's length is its first badge's, under either overlay yt-dlp r
     const std::string noBadge = R"({"lockupViewModel":{"contentId":"ccccccccccc","contentType":"LOCKUP_CONTENT_TYPE_VIDEO",)"
                                 R"("metadata":{"lockupMetadataViewModel":{"title":{"content":"C"}}}}})";
     const auto page = parsePlaylistResponse(firstPage(lockup("aaaaaaaaaaa", "A", "2:31:48") + "," + otherOverlay + ","
-                                                      + noBadge + "," + lockup("ddddddddddd", "D", "LIVE")));
+                                                      + noBadge + "," + lockup("ddddddddddd", "D", "LIVE") + ","
+                                                      + lockup("eeeeeeeeeee", "E", "99:99:99")));
     REQUIRE(page);
-    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{9108, 754, 0, 0});
+    // A malformed badge is no length, not 362439 seconds.
+    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{9108, 754, 0, 0, 0});
 }
 
 TEST_CASE("the continuation to follow is the first among the entries, never the one beside the item section")
@@ -617,6 +665,63 @@ TEST_CASE("a first page that counts videos but holds none the library can read i
     const auto listed = uncounted.resolver.playlist(LONG_PLAYLIST, 5);
     REQUIRE(listed);
     CHECK(listed.value.entries.empty());
+}
+
+TEST_CASE("a first page whose videos are all private or deleted is read right, and leads on to the rest")
+{
+    // Should YouTube ever list them: videos the reader knows, every one dropped.
+    const std::string hidden = lockup("aaaaaaaaaaa", "[Private video]") + "," + lockup("bbbbbbbbbbb", "[Deleted video]") + ","
+                             + renderer("ccccccccccc", "Gone", R"(,"isPlayable":false)");
+    const auto page = parsePlaylistResponse(firstPage(hidden + "," + continuationItem("T1"), "5 videos"));
+    REQUIRE(page);
+    CHECK(page.value.entries.empty());
+    CHECK(page.value.totalCount == 5);
+    CHECK(page.value.next.token == "T1");
+
+    // Through the Resolver: page two is asked for and listed.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {firstPage(hidden + "," + continuationItem("T1"), "5 videos"),
+                                      furtherPage(lockup("ddddddddddd") + "," + lockup("eeeeeeeeeee"))};
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 50);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"ddddddddddd", "eeeeeeeeeee"});
+    CHECK(list.value.totalCount == 5);
+    CHECK(test.http->requests.size() == 2);
+
+    // With nothing to lead on to, the playlist is Ok and lists nothing.
+    const auto alone = parsePlaylistResponse(firstPage(hidden, "3 videos"));
+    REQUIRE(alone);
+    CHECK(alone.value.entries.empty());
+
+    // A first page of nothing but lockups that are not videos is still Parse:
+    // a playlist of videos would not hold only those.
+    const std::string others = lockup("PLaaaaaaaaaa", "A playlist", "", "LOCKUP_CONTENT_TYPE_PLAYLIST") + ","
+                             + lockup("UCaaaaaaaaaa", "A channel", "", "LOCKUP_CONTENT_TYPE_CHANNEL");
+    CHECK(parsePlaylistResponse(firstPage(others + "," + continuationItem("T1"), "5 videos")).status.code == Error::Parse);
+}
+
+TEST_CASE("a first page whose videos carry no id the reader can read is Parse, in either layout")
+{
+    // As it would look had YouTube moved or renamed the id field: the video
+    // is known by its kind, but nothing can be listed from it.
+    const std::string noContentId =
+        R"({"lockupViewModel":{"contentType":"LOCKUP_CONTENT_TYPE_VIDEO","videoKey":"aaaaaaaaaaa",)"
+        R"("metadata":{"lockupMetadataViewModel":{"title":{"content":"T"}}}}})";
+    const auto lockupPage = parsePlaylistResponse(firstPage(noContentId, "5 videos"));
+    CHECK(lockupPage.status.code == Error::Parse);
+    CHECK(lockupPage.status.message == "The playlist counts videos but holds none the library can read");
+    CHECK(parsePlaylistResponse(firstPage(lockup("") + "," + continuationItem("T1"), "5 videos")).status.code
+          == Error::Parse);
+
+    const std::string renamedId = R"({"playlistVideoRenderer":{"id":"aaaaaaaaaaa","title":{"runs":[{"text":"T"}]}}})";
+    CHECK(parsePlaylistResponse(firstPage(renamedId, "5 videos")).status.code == Error::Parse);
+    CHECK(parsePlaylistResponse(firstPage(renderer("short", "T", R"(,"isPlayable":false)"), "5 videos")).status.code
+          == Error::Parse);
+
+    // Through the Resolver: a failure the caller falls back on.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {firstPage(noContentId, "450 videos")};
+    CHECK(test.resolver.playlist(LONG_PLAYLIST, 5).status.code == Error::Parse);
 }
 
 TEST_CASE("a playlist page names the visitor YouTube took the caller for, when it may go out as a header")
@@ -910,6 +1015,32 @@ TEST_CASE("with no visitor data cached, a later playlist page carries what the p
     CHECK(headerValue(test.http->requests[3], "X-Goog-Visitor-Id") == VISITOR_DATA);
 }
 
+TEST_CASE("with no visitor data cached, a playlist page that names none passes on the latest an earlier page named")
+{
+    // yt-dlp's "or previous": an old visitor id beats none.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {
+        R"({"responseContext":{"visitorData":"VDpage1%3D"},)"
+            + firstPage(lockup("aaaaaaaaaaa") + "," + continuationItem("T1")).substr(1),
+        furtherPage(lockup("bbbbbbbbbbb") + "," + continuationItem("T2")),
+        furtherPage(lockup("ccccccccccc")),
+    };
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 50);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"});
+    REQUIRE(test.http->requests.size() == 3);
+    CHECK(headerValue(test.http->requests[0], "X-Goog-Visitor-Id").empty());
+    CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id") == "VDpage1%3D");
+    CHECK(headerValue(test.http->requests[2], "X-Goog-Visitor-Id") == "VDpage1%3D");
+    CHECK(json::parse(test.http->requests[2].body)["context"]["client"]["visitorData"] == "VDpage1%3D");
+
+    // Nor is it cached: the next resolve still fetches a watch page.
+    REQUIRE(test.resolver.resolve("dQw4w9WgXcQ"));
+    REQUIRE(test.http->requests.size() == 5);
+    CHECK(test.http->requests[3].method == "GET");
+    CHECK(headerValue(test.http->requests[4], "X-Goog-Visitor-Id") == VISITOR_DATA);
+}
+
 TEST_CASE("with visitor data cached, every playlist page carries the cached one")
 {
     TestResolver test;
@@ -937,6 +1068,28 @@ TEST_CASE("a playlist cancelled up front sends nothing, and a cancel check that 
     request.cancelled = []() -> bool { throw std::runtime_error("the check broke"); };
     CHECK(broken.resolver.playlist(LONG_PLAYLIST, 5, request).status.code == Error::Internal);
     CHECK(broken.http->requests.empty());
+}
+
+TEST_CASE("a cancel check that throws before a later playlist page is Internal, with the playlist as read before it")
+{
+    TestResolver test;
+    test.http->apiBodies["browse"] = {readFixture("playlist_long_first.json"), readFixture("playlist_long_continuation.json")};
+    ytres::Request request;
+    int checks = 0;
+    request.cancelled = [&checks]() -> bool {
+        if (++checks > 1) {
+            throw std::runtime_error("the check broke");
+        }
+        return false;
+    };
+    const auto broken = test.resolver.playlist(LONG_PLAYLIST, 10, request);
+    CHECK(broken.status.code == Error::Internal);
+    CHECK(broken.status.message.find("cancel check") != std::string::npos);
+    CHECK(broken.value.playlistId == LONG_PLAYLIST);
+    CHECK(broken.value.title == "Lex Fridman Podcast");
+    CHECK(broken.value.totalCount == 447);
+    CHECK(idsOf(broken.value.entries) == std::vector<std::string>{"s7d2d8FhevU", "NYFGCESmikA", "l6USUAIKJls"});
+    CHECK(test.http->requests.size() == 1);
 }
 
 TEST_CASE("a playlist keeps resolve()'s rules for the request timeout and the deadline")

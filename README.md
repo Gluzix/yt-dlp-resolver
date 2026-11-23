@@ -22,18 +22,16 @@ twenty or so videos, a playlist one request per hundred videos it lists.
 [docs/innertube-notes.md](docs/innertube-notes.md) has the exact requests and
 what YouTube answered to them.
 
-> **M3 and M4 were written without being built.** Kamil asked that nothing
-> be compiled or run while they were coded, so the search and playlist code,
-> their tests and the `--search` and `--playlist` harness have never met a
-> compiler. Until the steps under "Before this is done" in
-> [docs/m3-plan.md](docs/m3-plan.md) and [docs/m4-plan.md](docs/m4-plan.md)
-> are done - a build with 0 warnings, `ctest`, the live tests, two live
-> searches, two live playlists and a comparison with yt-dlp - treat both as
-> drafts.
+M3 and M4 were coded without a compiler and first built on 2026-11-23: 0
+warnings, the offline and live tests passing, live searches that agree with
+yt-dlp's on the first result, and live playlists that list what
+`yt-dlp --flat-playlist` lists, in its order. The
+probing that followed fixed what it found; "Verified live" in
+[docs/innertube-notes.md](docs/innertube-notes.md) has the record.
 
 ## Requirements
 
-Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.20+ and vcpkg at
+Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.14+ and vcpkg at
 `C:/vcpkg`. libcurl, nlohmann-json and doctest come through the `vcpkg.json`
 manifest; the first configure builds libcurl from source and takes a few
 minutes. The differential harness also wants Python 3 and yt-dlp.
@@ -81,13 +79,20 @@ results - an artist's name brings the artist's channel first. The first page
 holds about twenty videos; a larger `max` follows YouTube's continuation, one
 request per page, up to ten pages. It sends the visitor data a resolve has
 cached, but fetches none of its own; with none cached, a later page carries
-the visitor data YouTube named on the page before it, as yt-dlp does. A live stream comes back with
+the latest visitor data YouTube named on an earlier page (yt-dlp sends the
+page before's, else that of a page it downloads first; the library downloads
+none). A live stream comes back with
 `isLive` and no length (`resolve()` answers it with `NoFormats`), a
 scheduled one with `isUpcoming`: the first result that is neither is the
 one to play. `max` of 0 or a blank query is `BadInput`. A first page on
 which YouTube counts results but holds none the library can read is `Parse`,
 not an empty list: YouTube has changed its answer, and the caller should
-fall back rather than tell the user nothing was found. When a later page
+fall back rather than tell the user nothing was found. A first page with no
+video that leads on to a further page is judged by that page: its videos are
+the results, and if it has none either the search is `Parse` - unless page
+one held nothing but a channel (a query that names a channel and no video)
+or the empty search's promo, which is an empty list, as is such a page with
+no further page. When a later page
 fails, the result carries that failure *and* the videos read before it, so
 a search cancelled on page three still has the first two.
 
@@ -96,8 +101,10 @@ playlist in its order, with its title and the count YouTube gives for it
 (`totalCount`, 0 when unknown). The count is read from YouTube's English
 text ("447 episodes"), so with an `Options::language` other than `"en"` it
 may be wrong or 0. It takes a `youtube.com` `/playlist` or
-`/watch` link, or a `youtu.be` link, that carries `list=`, or a bare id
-starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL` or `PU`. Like a search it
+`/watch` link, an `/embed/videoseries` link (on `youtube.com` or
+`youtube-nocookie.com`), or a `youtu.be` link, that carries `list=`, or a bare id
+starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL`, `PU` or `RDCLAK5uy_` (YouTube
+Music's curated playlists). Like a search it
 asks as the `web` client, sends the visitor data a resolve has cached and
 fetches none of its own. YouTube sends a hundred videos a page, and the
 library asks for no more pages than `max` needs: the first 50 videos of a
@@ -108,7 +115,7 @@ after three pages in a row that bring no video. YouTube hides unavailable
 videos itself, and the library drops any it lists anyway
 (`[Private video]`, `[Deleted video]`, no title), so `entries` may hold
 fewer than `totalCount`. A playlist that does not exist is `Unavailable`, with
-YouTube's words; a mix (`RD...`), Watch Later, Liked videos and the other
+YouTube's words; a mix (any other `RD...`), Watch Later, Liked videos and the other
 lists made for one signed-in viewer are `BadInput`, as is `max` of 0. As for
 search, a first page that counts videos but holds none the library can read
 is `Parse`, not an empty playlist, and a later page's failure comes back
@@ -127,7 +134,10 @@ prints the error code and YouTube's reason to stderr and exits with 1.
 - `--formats` lists every usable format instead.
 - `--dump <file>` also writes YouTube's player response to `<file>`; that is
   how fixtures are recorded. The dump is scrubbed of the requesting IP and
-  visitor data automatically.
+  visitor data automatically. It is written after the output, whatever the
+  verdict; a file that cannot be written prints `Internal: Cannot write
+  <file>` and exits with 1, and a run that got no response to dump (a
+  `BadInput`, say) says `No response to dump`.
 - `--client visionos|web` asks that one InnerTube client instead of the
   library's ladder, to see what YouTube tells it today. `web` needs the
   player JavaScript and a PO Token, so YouTube turns it away (`NoFormats`);
@@ -158,6 +168,19 @@ scrubbed; `--formats` and `--client` are refused with `--playlist` too.
 Stream URLs expire after a few hours and work only from the IP address that
 asked for them.
 
+Text goes in and out as UTF-8. On Windows `ytres_cli` carries a manifest
+that makes UTF-8 its code page, so its arguments - a query such as
+"Dawid Podsiadło", or a `--dump` path - reach it intact from Git Bash,
+`cmd.exe` and PowerShell alike. Windows older than 10 version 1903 ignores
+that manifest and hands the arguments over in the system's ANSI code page,
+where "ł" becomes a byte that is not UTF-8 and a character outside the code
+page becomes `?`. The manifest does not change how a console shows the
+output: Git Bash (mintty) shows the titles as they are, and so does a file
+or a pipe, but a default `cmd.exe` or PowerShell console shows "Podsiadło" as
+mojibake until it is told to read UTF-8 - `chcp 65001` in `cmd.exe`,
+`[Console]::OutputEncoding = [Text.Encoding]::UTF8` in PowerShell - or the
+output is redirected to a file.
+
 ## Errors
 
 Every call returns a `Status` whose `code` says what went wrong and whose
@@ -168,11 +191,11 @@ each:
 |---|---|---|
 | `Unavailable`, `AgeRestricted`, `GeoBlocked`, `LoginRequired` | The video is the problem: gone or private, age-gated, blocked in this country, or behind a sign-in. For a playlist, `Unavailable` means it does not exist. The message is YouTube's reason. | Tell the user why. Another resolver on the same line, without cookies, is unlikely to do better. |
 | `BotCheck` | YouTube wants proof that the caller is no bot ("Sign in to confirm you're not a bot"). It is about who asks, not the video; the library has tried once to fetch fresh visitor data and, when it got some, asked once more. | Fall back to another resolver, such as yt-dlp, and stop asking the library for a while. |
-| `NoFormats`, `Http`, `Parse` | Every client in the ladder failed: nothing usable came back (a live stream, SABR streaming only, a client YouTube refused), or an answer the library could not read. The message names each client and what it answered. | Fall back to another resolver. |
+| `NoFormats`, `Http`, `Parse` | Every client in the ladder failed: nothing usable came back (a live stream, SABR streaming only, a client YouTube refused, a video the client cannot play though YouTube describes it, such as one made for kids on `visionos`), or an answer the library could not read. The message names each client and what it answered. | Fall back to another resolver. |
 | `Network`, `Timeout` | The network failed, or a request timed out, or the call's deadline ran out. | Try again later, or fall back. |
 | `Cancelled` | `Request::cancelled` said so. | Nothing. |
 | `Internal` | A bug or a resource failure inside the library, never YouTube's doing. | Log it as a bug; another resolver may still get the video. |
-| `BadInput` | Not a YouTube video link or id, an empty or unknown client list, a search for no videos or with a blank query, a playlist for no videos, not a public playlist's link or id (a mix, Watch Later or Liked videos among them), or a request timeout of zero or less. | Fix the call. |
+| `BadInput` | Not a YouTube video link or id, a moved-from `Resolver`, an empty or unknown client list, a search for no videos or with a blank query, a playlist for no videos, not a public playlist's link or id (a mix, Watch Later or Liked videos among them), or a request timeout of zero or less. | Fix the call. |
 
 When every client in the ladder fails, the code is the most telling of their
 answers: `BotCheck` first, then `Http`, then `Parse`, then `NoFormats`. A
@@ -209,6 +232,7 @@ scrubbed of the requesting address (203.0.113.7) and visitor data
 | `playlist_long_first.json` | the first page of a 447-video playlist: three videos and the continuation among them |
 | `playlist_long_continuation.json` | its second page: three videos and the next continuation |
 | `playlist_missing.json` | a playlist that does not exist |
+| `playlist_music_curated.json` | a YouTube Music curated playlist (`RDCLAK5uy_...`, 52 videos, recorded 2026-11-23): its first three |
 
 The search and playlist pages are cut down to a few entries each. The old
 playlist layout (`playlistVideoRenderer`) could not be recorded any more, so
@@ -222,11 +246,11 @@ checks that a warm resolve is one request, cancels a request to the
 unroutable 10.255.255.1 and a live resolve at 100 ms and wants both back
 within 200 ms, walks the client ladder from `web` to `visionos`, searches
 once ("Rick Astley", five videos) and wants each result to carry a valid
-id, a title and a channel, and lists the first 150 videos of a 447-video
-playlist and wants two requests, a title, a count above 150 and 150 entries
+id, a title and a channel, and lists the first 150 videos of a playlist of
+about 450 (447 when its fixtures were recorded) and wants two requests, a title, a count above 150 and 150 entries
 with valid ids and titles. The search and the playlist are what notice
 YouTube changing the shape of those answers: the offline tests only replay
-the answers recorded on 2026-10-01. It is built with everything else but
+the answers recorded on 2026-10-01 (and one on 2026-11-23). It is built with everything else but
 never added to `ctest`, since it needs the network and YouTube changes
 under it:
 

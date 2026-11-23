@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Makes UTF-8 the process's ANSI code page (Windows 10 1903 and later), so
+  that the C runtime hands main() its arguments in UTF-8 and a narrow file
+  name opens the file it names. Without it, argv arrives in the system code
+  page: a Polish l with stroke becomes one byte that is not UTF-8, and a
+  character outside that code page becomes '?'. Older Windows ignores it.
+  The console's output code page is another matter: see README.md, "Running".
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>
