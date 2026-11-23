@@ -316,6 +316,17 @@ POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
   being `LIVE`, and takes `upcomingEventData` to mean an upcoming one.
 - A search with no results: `estimatedResults` is `"0"` and the item section
   holds one `backgroundPromoRenderer`. No continuation.
+- A corrected query (seen 2026-11-23): YouTube searches for its own spelling
+  and says so in a `showingResultsForRenderer` first in the item section,
+  ahead of the `videoRenderer`s: `showingResultsFor` ("Showing results
+  for"), `correctedQuery` (runs, the corrected words in italics),
+  `searchInsteadFor` and `originalQuery` (`simpleText`, what was sent). A
+  misspelled query gave that card and 20 videos; a query that reached
+  YouTube with U+FFFD in it (before `ytres_cli` read its arguments as UTF-8)
+  gave the same card with the right spelling, which is how it still found
+  the right videos. A nonsense query gave a `didYouMeanRenderer` and the
+  `backgroundPromoRenderer`, `estimatedResults` `"0"`. The library reads past
+  these cards like any item that is not a `videoRenderer`.
 - Sizes: a first page is about 265 KB of JSON (24 KB on the wire with gzip),
   0.5 s.
 - Every result carries preview-thumbnail urls with `&ip=<the requesting

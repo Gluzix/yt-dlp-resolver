@@ -446,6 +446,22 @@ TEST_CASE("whatever is not a video with a valid id is read past, in any section,
     CHECK(page.value.next.token == "FIRST");
 }
 
+TEST_CASE("a corrected query's card ahead of the videos is read past, and the videos are the results")
+{
+    // The shape of a misspelled query's first page on 2026-11-23: YouTube's
+    // "Showing results for" card first in the item section, then the videos.
+    const std::string corrected =
+        R"({"showingResultsForRenderer":{"showingResultsFor":{"runs":[{"text":"Showing results for"}]},)"
+        R"("correctedQuery":{"runs":[{"text":"rick "},{"text":"astley","italics":true}]},)"
+        R"("searchInsteadFor":{"runs":[{"text":"Search instead for"}]},"originalQuery":{"simpleText":"rick astly"}}})";
+    const auto page = parseSearchResponse(
+        firstPage(section(corrected + "," + video("aaaaaaaaaaa") + "," + video("bbbbbbbbbbb")) + "," + continuationItem("NEXT"),
+                  "1234"));
+    REQUIRE(page);
+    CHECK(idsOf(page.value.results) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb"});
+    CHECK(page.value.next.token == "NEXT");
+}
+
 TEST_CASE("a first page that counts results but holds no video the library can read is Parse")
 {
     // A search as it would look had YouTube moved its results into a view
