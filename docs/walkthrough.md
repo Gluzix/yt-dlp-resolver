@@ -283,14 +283,13 @@ which `estimatedResults` is above 0 but no `videoRenderer` can be read is
 otherwise come back "nothing found" — an answer the bot shows the user —
 instead of a failure that sends it to yt-dlp.
 
-Two exceptions, both added after the first build. A first page that holds
-nothing but a channel (a query that names a channel and no video) or the
-empty search's promo is no alarm: it is an empty list. And a first page
-with no video that leads on is not judged until the page after it has been
-read (`SearchPage::counted` and `unreadable` carry the verdict to the
-loop): that page's videos are the results, and if it has none either the
-search is `Parse` — unless page one held only the channel or the promo,
-which stays an empty list.
+Two exceptions, both added after the first build. A first page with no
+video that leads on is not judged until the page after it has been read
+(`SearchPage::counted` and `unreadable` carry the verdict to the loop):
+that page's videos are the results, and if it has none either the search
+is `Parse` — unless page one held nothing but a channel (a query that names
+a channel and no video) or the empty search's promo, which is an empty
+list, as is such a page with no further page.
 
 **Step 4 — the loop.** Append results until `max`, skipping any id already
 listed: YouTube can hand out one video twice, on a page or across two, and
