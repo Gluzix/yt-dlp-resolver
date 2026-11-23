@@ -1044,6 +1044,28 @@ TEST_CASE("a playlist cancelled up front sends nothing, and a cancel check that 
     CHECK(broken.http->requests.empty());
 }
 
+TEST_CASE("a cancel check that throws before a later playlist page is Internal, with the playlist as read before it")
+{
+    TestResolver test;
+    test.http->apiBodies["browse"] = {readFixture("playlist_long_first.json"), readFixture("playlist_long_continuation.json")};
+    ytres::Request request;
+    int checks = 0;
+    request.cancelled = [&checks]() -> bool {
+        if (++checks > 1) {
+            throw std::runtime_error("the check broke");
+        }
+        return false;
+    };
+    const auto broken = test.resolver.playlist(LONG_PLAYLIST, 10, request);
+    CHECK(broken.status.code == Error::Internal);
+    CHECK(broken.status.message.find("cancel check") != std::string::npos);
+    CHECK(broken.value.playlistId == LONG_PLAYLIST);
+    CHECK(broken.value.title == "Lex Fridman Podcast");
+    CHECK(broken.value.totalCount == 447);
+    CHECK(idsOf(broken.value.entries) == std::vector<std::string>{"s7d2d8FhevU", "NYFGCESmikA", "l6USUAIKJls"});
+    CHECK(test.http->requests.size() == 1);
+}
+
 TEST_CASE("a playlist keeps resolve()'s rules for the request timeout and the deadline")
 {
     TestResolver zero(WATCH_PAGE, 0ms);

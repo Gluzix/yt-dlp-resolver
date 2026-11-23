@@ -1018,6 +1018,25 @@ TEST_CASE("a search cancelled up front sends nothing, and a cancel check that th
     CHECK(broken.http->requests.empty());
 }
 
+TEST_CASE("a cancel check that throws before a later search page is Internal, with the videos read before it")
+{
+    TestResolver test;
+    test.http->apiBodies["search"] = {readFixture("search_videos.json"), readFixture("search_continuation.json")};
+    ytres::Request request;
+    int checks = 0;
+    request.cancelled = [&checks]() -> bool {
+        if (++checks > 1) {
+            throw std::runtime_error("the check broke");
+        }
+        return false;
+    };
+    const auto broken = test.resolver.search(artist(), 10, request);
+    CHECK(broken.status.code == Error::Internal);
+    CHECK(broken.status.message.find("cancel check") != std::string::npos);
+    CHECK(idsOf(broken.value) == std::vector<std::string>{"MxWXAIWsppY", "oCZugu1ea18", "2DiP0mMeaT8", "jyXHU7PtsmI"});
+    CHECK(test.http->requests.size() == 1);
+}
+
 TEST_CASE("a search keeps resolve()'s rules for the request timeout and the deadline")
 {
     TestResolver zero(WATCH_PAGE, 0ms);

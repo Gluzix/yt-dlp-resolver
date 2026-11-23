@@ -626,7 +626,19 @@ Result<innertube::PlaylistPage> Resolver::Impl::askPlaylist(const innertube::Cli
 // Sends one request within what is left of the call's deadline.
 Result<HttpResponse> Resolver::Impl::send(HttpRequest httpRequest, const Call &call) const
 {
-    if (call.request.cancelled && call.request.cancelled()) {
+    // A check that throws is the caller's bug, not a cancel: Internal, as
+    // CurlHttpClient reports it. Caught here rather than by the public net,
+    // so that it fails this request alone and a search or a playlist keeps
+    // the pages it read before.
+    bool stop = false;
+    try {
+        stop = call.request.cancelled && call.request.cancelled();
+    } catch (const std::exception &e) {
+        return {{Error::Internal, std::string("The cancel check threw: ") + e.what()}, {}};
+    } catch (...) {
+        return {{Error::Internal, "The cancel check threw"}, {}};
+    }
+    if (stop) {
         return {{Error::Cancelled, "Cancelled"}, {}};
     }
     const auto timeLeft = std::chrono::duration_cast<std::chrono::milliseconds>(call.deadline - Clock::now());
