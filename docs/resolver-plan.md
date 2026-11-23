@@ -334,7 +334,7 @@ The differential harness is the highest-value thing in this project, more so
 than any unit test. YouTube breaks this library; you mostly do not.
 
 1. **Fixture tests (offline, deterministic, in CI).** A fake `HttpClient`
-   replays recorded responses. The CLI harness gets a `--record` mode that
+   replays recorded responses. The CLI harness gets a `--dump` mode that
    saves live responses into `tests/fixtures/`. This covers URL parsing,
    response walking, format selection and error mapping.
 2. **Live smoke tests (manual target).** A golden corpus of ids: an ordinary
@@ -352,11 +352,11 @@ than any unit test. YouTube breaks this library; you mostly do not.
 
 | # | Milestone | Done when |
 |---|---|---|
-| M0 | Skeleton and seams | CMake, public header, `CurlHttpClient`, JSON, CLI harness with `--record`, test target. No YouTube yet. |
+| M0 | Skeleton and seams | CMake, public header, `CurlHttpClient`, JSON, CLI harness with `--dump`, test target. No YouTube yet. |
 | M1 | Resolve via `visionos` | Player request, playability mapping, format model, `bestAudio()`, expiry. The usable MVP. |
 | M2 | Hardening | Client ladder, full error taxonomy, cancellation through curl, timeouts, thread safety, differential harness. |
-| M3 | Search | Videos-only filter; one request, no hand-picking. Written 2026-10-01 without a build; see `docs/m3-plan.md`, "Before this is done". |
-| M4 | Playlists | Browse plus continuations, bounded by `max`; both of YouTube's layouts. Written 2026-10-01 without a build; see `docs/m4-plan.md`, "Before this is done". |
+| M3 | Search | Videos-only filter; one request, no hand-picking. Written 2026-10-01 without a build; built and verified 2026-11-23, see `docs/m3-plan.md`, "Verified". |
+| M4 | Playlists | Browse plus continuations, bounded by `max`; both of YouTube's layouts. Written 2026-10-01 without a build; built and verified 2026-11-23, see `docs/m4-plan.md`, "Verified". |
 | M5 | JS tier *(deferred)* | Only if a client that needs `base.js` ever becomes necessary. Currently buys nothing. |
 | M6 | Bot integration | Separate plan. `IMediaResolver` seam, native first, yt-dlp fallback. |
 

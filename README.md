@@ -22,18 +22,16 @@ twenty or so videos, a playlist one request per hundred videos it lists.
 [docs/innertube-notes.md](docs/innertube-notes.md) has the exact requests and
 what YouTube answered to them.
 
-> **M3 and M4 were written without being built.** Kamil asked that nothing
-> be compiled or run while they were coded, so the search and playlist code,
-> their tests and the `--search` and `--playlist` harness have never met a
-> compiler. Until the steps under "Before this is done" in
-> [docs/m3-plan.md](docs/m3-plan.md) and [docs/m4-plan.md](docs/m4-plan.md)
-> are done - a build with 0 warnings, `ctest`, the live tests, two live
-> searches, two live playlists and a comparison with yt-dlp - treat both as
-> drafts.
+M3 and M4 were coded without a compiler and first built on 2026-11-23: 0
+warnings, the offline and live tests passing, live searches that agree with
+yt-dlp's on the first result, and live playlists that list what
+`yt-dlp --flat-playlist` lists, in its order. The
+probing that followed fixed what it found; "Verified live" in
+[docs/innertube-notes.md](docs/innertube-notes.md) has the record.
 
 ## Requirements
 
-Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.20+ and vcpkg at
+Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.14+ and vcpkg at
 `C:/vcpkg`. libcurl, nlohmann-json and doctest come through the `vcpkg.json`
 manifest; the first configure builds libcurl from source and takes a few
 minutes. The differential harness also wants Python 3 and yt-dlp.
@@ -192,7 +190,7 @@ each:
 | `Network`, `Timeout` | The network failed, or a request timed out, or the call's deadline ran out. | Try again later, or fall back. |
 | `Cancelled` | `Request::cancelled` said so. | Nothing. |
 | `Internal` | A bug or a resource failure inside the library, never YouTube's doing. | Log it as a bug; another resolver may still get the video. |
-| `BadInput` | Not a YouTube video link or id, an empty or unknown client list, a search for no videos or with a blank query, a playlist for no videos, not a public playlist's link or id (a mix, Watch Later or Liked videos among them), or a request timeout of zero or less. | Fix the call. |
+| `BadInput` | Not a YouTube video link or id, a moved-from `Resolver`, an empty or unknown client list, a search for no videos or with a blank query, a playlist for no videos, not a public playlist's link or id (a mix, Watch Later or Liked videos among them), or a request timeout of zero or less. | Fix the call. |
 
 When every client in the ladder fails, the code is the most telling of their
 answers: `BotCheck` first, then `Http`, then `Parse`, then `NoFormats`. A
@@ -247,7 +245,7 @@ id, a title and a channel, and lists the first 150 videos of a playlist of
 about 450 (447 when its fixtures were recorded) and wants two requests, a title, a count above 150 and 150 entries
 with valid ids and titles. The search and the playlist are what notice
 YouTube changing the shape of those answers: the offline tests only replay
-the answers recorded on 2026-10-01. It is built with everything else but
+the answers recorded on 2026-10-01 (and one on 2026-11-23). It is built with everything else but
 never added to `ctest`, since it needs the network and YouTube changes
 under it:
 

@@ -7,10 +7,8 @@ at master and probed against live YouTube on 2026-10-01. Branch: `m3/search`
 off `master`. Kamil merges through pull requests; nothing is pushed by anyone
 but him.
 
-**Written without a build.** Kamil asked for no compilation and no test runs
-while this milestone was coded, so nothing in it has been compiled or
-executed. The first thing to do when that is lifted is at the bottom, under
-"Before this is done".
+Coded without a build, as Kamil asked; first built and verified on
+2026-11-23 (see "Verified", at the bottom).
 
 ## What the bot needs
 
@@ -318,14 +316,29 @@ Playlists (M4). Search filters other than videos-only, sorting, music search.
 Fetching visitor data for a search. (De-duplicating results was out of scope
 here, as yt-dlp does not; it was added on 2026-11-23, see "The loop".)
 
-## Before this is done
+## Verified, 2026-11-23
 
-Nothing here was compiled or run. When Kamil lifts that:
+What this section once listed as still to do, done on the first build:
 
-1. Build all targets; fix whatever the compiler says, with 0 warnings at
-   `/W4 /permissive-` as before.
-2. `ctest`, then `ytres_live_tests`.
-3. One live search through `ytres_cli --search "Dawid Podsiadło" --max 25`
-   (two pages) and one with `--dump`, comparing the dump's shape with
-   `search_videos.json`.
-4. Only then is M3 reviewable as done.
+1. All targets built with 0 warnings at `/W4 /permissive-`; nothing in the
+   search code needed a change to compile.
+2. `ctest` passed (167 cases, 1244 assertions, before the fix round below;
+   187 and 1560 after it), and so did `ytres_live_tests` (7 cases, 368
+   assertions): a live search Ok in about 600 ms, five videos, one request.
+3. `ytres_cli --search "rick astley never gonna give you up" --max 25` gave
+   25 distinct videos over two pages, and a `--dump` of a live first page
+   had the shape of `search_videos.json`, scrubbed. `--search "Dawid
+   Podsiadło"` from a console gave the right videos only because YouTube
+   corrected the query: the harness had read its arguments in the ANSI code
+   page and sent U+FFFD for the "ł". After the fix round, the same run from
+   Git Bash sent `search_query=Dawid+Podsiad%C5%82o`, and the dump held no
+   correction card.
+
+The probing that followed the build found, and the fix round fixed: the
+harness's arguments (a UTF-8 manifest); a query that is not UTF-8 now logs a
+warning; a feed that repeats a token or its videos stops, each video once;
+the page cap warns; a first page holding only a channel, or one that leads
+on, no longer sounds the `Parse` alarm at once; the reader takes the
+container its request expects; `estimatedResults` in any form keeps the
+alarm on; `\v` and `\f` count as blank; and a malformed length is 0. The
+dated notes under "The loop" and "The response" say what changed.

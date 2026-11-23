@@ -8,9 +8,8 @@ against live YouTube on 2026-10-01. Branch: `m4/playlists`, stacked on
 `m3/search`. Kamil merges through pull requests; nothing is pushed by anyone
 but him.
 
-**Written without a build**, like M3: Kamil asked for no compilation and no
-test runs while it was coded. "Before this is done", at the bottom, says what
-that leaves open.
+Coded without a build, like M3, as Kamil asked; first built and verified on
+2026-11-23 (see "Verified", at the bottom).
 
 ## What the bot needs
 
@@ -299,10 +298,23 @@ playlist section next to M3's search section).
 Mixes and personal lists. Channel tabs. Listing unavailable videos. A page
 size other than YouTube's hundred.
 
-## Before this is done
+## Verified, 2026-11-23
 
-Nothing here was compiled or run. When Kamil lifts that: build with 0
-warnings, `ctest`, `ytres_live_tests`, then live runs of
-`ytres_cli --playlist PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` (two
-pages) and of a playlist with fewer than a hundred videos, and a comparison
-with `yt-dlp --flat-playlist` on the same two.
+What this section once listed as still to do, done on the first build: all
+targets built with 0 warnings; `ctest` passed (167 cases before the fix
+round, 187 after it) and so did `ytres_live_tests`, whose playlist case
+listed 150 of the long playlist's videos, now 450 of them (447 when the
+fixtures were recorded), in two requests in about 1.5 s.
+`ytres_cli --playlist PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` gave 150
+distinct entries and `PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk` its 7, title and
+count right; both matched `yt-dlp --flat-playlist` id for id and in order
+(150 of 150, 7 of 7), as did a channel's uploads and an album. A missing
+playlist was `Unavailable`, "The playlist does not exist.", and a mix id
+`BadInput`.
+
+The probing that followed the build found, and the fix round fixed: YouTube
+Music's curated `RDCLAK5uy_` lists were refused as mixes; `/embed/videoseries`
+links were refused; a first page whose videos were all private or deleted
+was `Parse`; and a malformed length badge read as hours. The dated notes
+under "Which playlist" and "A layout the reader does not know" say what
+changed.

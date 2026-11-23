@@ -1,8 +1,8 @@
 # How the resolver works, step by step
 
-A reading guide to the code on `m2/hardening`, written for the session where
-we go through it together, with section 4 added for M3's search on
-`m3/search` and section 5 for M4's playlists on `m4/playlists`. Read it top
+A reading guide to the code on `master`, written for the session where we go
+through it together: sections 1-3 and 6-11 cover M2, section 4 M3's search
+and section 5 M4's playlists. Read it top
 to bottom once; then open the files it names and read them in the same
 order. Every section ends with the questions worth asking about it, which
 is where the session will spend its time.
@@ -213,9 +213,8 @@ ytres::Result<std::vector<ytres::SearchResult>> found = resolver.search("Dawid P
 // the first result that is neither isLive nor isUpcoming is the one to play
 ```
 
-M3 was written without a build (see `docs/m3-plan.md`, "Before this is
-done"), so read this section as the design; the code has not met a compiler
-yet. The files:
+M3 was coded without a build and first built on 2026-11-23 (see
+`docs/m3-plan.md`, "Verified"). The files:
 
 ```
 src/search.*            the request and the reader of one page
@@ -311,8 +310,8 @@ ytres::Result<ytres::Playlist> list = resolver.playlist("https://www.youtube.com
 // list.value.title, list.value.totalCount, list.value.entries[i].videoId / title / durationSeconds
 ```
 
-M4, like M3, was written without a build (see `docs/m4-plan.md`, "Before
-this is done"): read this section as the design too. It stands almost
+M4, like M3, was coded without a build and first built on 2026-11-23 (see
+`docs/m4-plan.md`, "Verified"). It stands almost
 entirely on M3's groundwork — `apiRequest()`, `continuationOf()`,
 `json_read.h` — and adds:
 
@@ -532,8 +531,10 @@ before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
-M3's `search_test.cpp` and 167 with M4's `playlist_test.cpp` (neither yet
-compiled); `ctest` runs only this target.
+M3's `search_test.cpp`, 167 with M4's `playlist_test.cpp`, and 187 after
+the fix round of the first build, which added `utf8_test.cpp` and
+`cli_test.cpp` (the harness's argument parser and dump scrubber); `ctest`
+runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish
@@ -557,8 +558,9 @@ YouTube starting to require a header we do not send?*
 
 ## 10. Build
 
-- `CMakeLists.txt` defines three targets: `ytres` (a static library),
-  `ytres_cli` and `ytres_tests`; `tests/CMakeLists.txt` adds
+- `CMakeLists.txt` defines `ytres` (a static library) and `ytres_cli`, which
+  on MSVC carries a manifest that makes UTF-8 its code page, so its
+  arguments arrive as UTF-8; `tests/CMakeLists.txt` adds `ytres_tests` and
   `ytres_live_tests`. C++17, `/W4 /permissive- /we4715 /utf-8`, zero
   warnings kept as a hard rule. `/utf-8` makes source and string literals
   UTF-8 regardless of the machine's code page.
@@ -590,7 +592,9 @@ one failed at some point:
    seen the project — build command, conventions, branch, what to report.
    The pre-planned fallback ("if you get bot-checked, do this") is why the
    first live run did not stall.
-3. **Implement**: logical commits, each built and tested before it lands.
+3. **Implement**: logical commits, each built and tested before it lands -
+   except M3 and M4, which were coded without a compiler, as asked, and
+   first built on 2026-11-23.
 4. **Review**: a second agent reads the diff against the plan and, crucially,
    *probes* the built library with throwaway programs. That is how the
    age-gate-as-bot-check bug, the wrong-language dub, the deadline overflow
@@ -607,11 +611,6 @@ author reads.
 
 ## Where to go next
 
-- **M3, search**: written (section 4), not yet built. Its first step is
-  the build and the runs under "Before this is done" in `docs/m3-plan.md`.
-- **M4, playlists**: written (section 5), not yet built either. Its first
-  step is the build and the runs under "Before this is done" in
-  `docs/m4-plan.md`, a comparison with `yt-dlp --flat-playlist` among them.
 - **M6, the bot**: an `IMediaResolver` seam in the bot with two
   implementations, native first and yt-dlp as the permanent fallback. The
   bot's `ResolvedMedia`/`PlaylistListing` types are already the right shape.
