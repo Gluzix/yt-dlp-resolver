@@ -134,6 +134,16 @@ PO Token.
   and messages `["This is a private video. Please sign in to verify that you
   may see it."]`; `web` gave the reason "Private video". The library reads
   messages[] when it tells failures apart, so both are `Unavailable`.
+- A video made for kids, the same day: `visionos` answered `e_04ZrNroTo`
+  (public, plays in a browser) with `UNPLAYABLE`, reason "This video is not
+  available", no subreason, and still a `videoDetails` with its id, title and
+  `lengthSeconds`; `web` was refused as usual. yt-dlp's `_video.py` notes that
+  `visionos` and `android_vr` cannot play made-for-kids videos and retries
+  them on `web_embedded` or `ios_producer`. The library reads `UNPLAYABLE`
+  with that reason, no subreason and a matching `videoDetails` as the
+  client's limit, `NoFormats`, so the ladder and the caller move on; a gone
+  or private video comes without `videoDetails` and stays `Unavailable`.
+  yt-dlp 2026.08.19 could not play it that day either.
 - Sanity check yt-dlp does and so must we: `videoDetails.videoId` must equal
   the requested id. YouTube occasionally answers with a different video.
 - `videoDetails`: `videoId`, `title`, `author`, `channelId`, `lengthSeconds`

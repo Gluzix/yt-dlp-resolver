@@ -238,8 +238,10 @@ bool asksForReload(const json &playability)
     return readString(*at, "signal") == "RELOAD_PAGE";
 }
 
+// describesVideo: the answer still carries videoDetails for the video asked
+// about, so YouTube knows it as one that exists.
 Status playabilityFailure(const std::string &status, const std::string &reason, const std::string &subreason,
-                          const std::string &messages, bool reloadAsked)
+                          const std::string &messages, bool reloadAsked, bool describesVideo)
 {
     std::string message = reason.empty() ? "YouTube says " + status : reason;
     if (!subreason.empty()) {
@@ -270,6 +272,17 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
     // needs to be reloaded." on UNPLAYABLE says nothing about the video.
     if (status == "UNPLAYABLE" && (reloadAsked || mentionsAny(text, {"page needs to be reloaded"}))) {
         return {Error::NoFormats, "YouTube refused the client: " + message};
+    }
+    // visionos cannot play a video made for kids, as yt-dlp's _video.py
+    // notes: it answers UNPLAYABLE, "This video is not available", with no
+    // subreason, yet describes the video in videoDetails (e_04ZrNroTo,
+    // 2026-11-23). That is the client's limit, not the video's, so the
+    // ladder and the caller move on. A gone or private video comes without
+    // videoDetails, and a block with a reason of its own (a copyright
+    // claim) carries a subreason or another reason: those stay Unavailable.
+    if (status == "UNPLAYABLE" && describesVideo && subreason.empty() && mentionsAny(reason, {"video is not available"})) {
+        return {Error::NoFormats, "The client cannot play this video, which YouTube still describes (made for kids?): "
+                                      + message};
     }
     return {Error::Unavailable, message};
 }
@@ -319,15 +332,15 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
         return {{Error::Parse, "The player response has no playability status"}, {}};
     }
     const std::string reason = readString(*playability, "reason");
+    const json *details = child(root, "videoDetails");
+    const std::string answeredId = details ? readString(*details, "videoId") : std::string{};
     if (!isAccepted(status)) {
         return {playabilityFailure(status, reason, subreasonOf(*playability), messagesOf(*playability),
-                                   asksForReload(*playability)),
+                                   asksForReload(*playability), !answeredId.empty() && answeredId == videoId),
                 {}};
     }
 
     // yt-dlp checks this too: now and then YouTube answers about another video.
-    const json *details = child(root, "videoDetails");
-    const std::string answeredId = details ? readString(*details, "videoId") : std::string{};
     if (answeredId != videoId) {
         return {{Error::Parse, answeredId.empty() ? "The player response has no video details"
                                                   : "The player response is about " + answeredId + ", not " + videoId}, {}};

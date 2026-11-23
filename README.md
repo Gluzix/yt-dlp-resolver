@@ -185,7 +185,7 @@ each:
 |---|---|---|
 | `Unavailable`, `AgeRestricted`, `GeoBlocked`, `LoginRequired` | The video is the problem: gone or private, age-gated, blocked in this country, or behind a sign-in. For a playlist, `Unavailable` means it does not exist. The message is YouTube's reason. | Tell the user why. Another resolver on the same line, without cookies, is unlikely to do better. |
 | `BotCheck` | YouTube wants proof that the caller is no bot ("Sign in to confirm you're not a bot"). It is about who asks, not the video; the library has tried once to fetch fresh visitor data and, when it got some, asked once more. | Fall back to another resolver, such as yt-dlp, and stop asking the library for a while. |
-| `NoFormats`, `Http`, `Parse` | Every client in the ladder failed: nothing usable came back (a live stream, SABR streaming only, a client YouTube refused), or an answer the library could not read. The message names each client and what it answered. | Fall back to another resolver. |
+| `NoFormats`, `Http`, `Parse` | Every client in the ladder failed: nothing usable came back (a live stream, SABR streaming only, a client YouTube refused, a video the client cannot play though YouTube describes it, such as one made for kids on `visionos`), or an answer the library could not read. The message names each client and what it answered. | Fall back to another resolver. |
 | `Network`, `Timeout` | The network failed, or a request timed out, or the call's deadline ran out. | Try again later, or fall back. |
 | `Cancelled` | `Request::cancelled` said so. | Nothing. |
 | `Internal` | A bug or a resource failure inside the library, never YouTube's doing. | Log it as a bug; another resolver may still get the video. |
