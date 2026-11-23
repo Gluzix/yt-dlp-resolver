@@ -48,7 +48,7 @@ target_link_libraries(ytres PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
 
 # A harness for trying the library against live YouTube and recording
 # fixtures. It is a test rig, never the deliverable.
-add_executable(ytres_cli cli/main.cpp)
+add_executable(ytres_cli cli/main.cpp cli/scrub.h)
 target_link_libraries(ytres_cli PRIVATE ytres)
 ytres_compile_options(ytres_cli)
 if(MSVC)

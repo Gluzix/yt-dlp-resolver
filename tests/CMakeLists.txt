@@ -20,10 +20,12 @@ add_executable(ytres_tests
     search_test.cpp
     playlist_test.cpp
     utf8_test.cpp
+    cli_test.cpp
 )
 target_link_libraries(ytres_tests PRIVATE ytres doctest::doctest nlohmann_json::nlohmann_json)
-# The internals are tested directly, not only through the public API.
-target_include_directories(ytres_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
+# The internals are tested directly, not only through the public API, and so
+# are the harness's pure parts.
+target_include_directories(ytres_tests PRIVATE "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/cli")
 target_compile_definitions(ytres_tests PRIVATE YTRES_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 ytres_compile_options(ytres_tests)
 

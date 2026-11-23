@@ -1,3 +1,5 @@
+#include "scrub.h"
+
 #include "ytres/http.h"
 #include "ytres/ytres.h"
 
@@ -8,7 +10,6 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -29,8 +30,8 @@
 //   first.
 // - Titles go out as the library's UTF-8, byte for byte: no code page
 //   conversion here either.
-// - A --dump is a fixture to commit, so scrubbed() takes out what identifies
-//   whoever recorded it before writeFile() sees it.
+// - A --dump is a fixture to commit, so scrubbed() (scrub.h) takes out what
+//   identifies whoever recorded it before writeFile() sees it.
 // =======================================================
 
 namespace {
@@ -210,20 +211,6 @@ bool parseArguments(int argc, char **argv, Arguments &args)
     return !args.formats && !args.client;
 }
 
-// Every stream url names the requesting address: ?ip=/&ip= in queries,
-// /ip/<addr>/ in hlsManifestUrl's path, IPv6 percent-encoded. Visitor data
-// identifies the visitor to YouTube, and carries the country, so it goes
-// too, under both names it travels by: "visitorData", and the web client's
-// tracking parameter "visitor_data".
-std::string scrubbed(std::string text)
-{
-    text = std::regex_replace(text, std::regex(R"(([?&])ip=[0-9A-Fa-f.:%]+)"), "$1ip=203.0.113.7");
-    text = std::regex_replace(text, std::regex(R"(/ip/[0-9A-Fa-f.:%]+/)"), "/ip/203.0.113.7/");
-    text = std::regex_replace(text, std::regex(R"("key":"visitor_data","value":"[^"]*")"),
-                              R"("key":"visitor_data","value":"FIXTURE")");
-    return std::regex_replace(text, std::regex(R"("visitorData":"[^"]*")"), R"("visitorData":"FIXTURE")");
-}
-
 bool writeFile(const std::string &path, const std::string &contents)
 {
     std::ofstream file(path, std::ios::binary);
@@ -266,7 +253,7 @@ int runSearch(ytres::Resolver &resolver, const RecordingHttpClient &recorder, co
 
     // Written before the verdict, as for a resolve.
     if (!args.dumpPath.empty() && !recorder.searchResponse.empty()
-        && !writeFile(args.dumpPath, scrubbed(recorder.searchResponse))) {
+        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder.searchResponse))) {
         std::cerr << "Cannot write " << args.dumpPath << '\n';
         return 1;
     }
@@ -292,7 +279,7 @@ int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, 
     // Written before the verdict, as for a resolve: a missing playlist's
     // answer is a fixture too.
     if (!args.dumpPath.empty() && !recorder.browseResponse.empty()
-        && !writeFile(args.dumpPath, scrubbed(recorder.browseResponse))) {
+        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder.browseResponse))) {
         std::cerr << "Cannot write " << args.dumpPath << '\n';
         return 1;
     }
@@ -344,7 +331,7 @@ int main(int argc, char **argv)
 
     // Written before the verdict: an unavailable video's answer is a fixture too.
     if (!args.dumpPath.empty() && !recorder->playerResponse.empty()
-        && !writeFile(args.dumpPath, scrubbed(recorder->playerResponse))) {
+        && !writeFile(args.dumpPath, ytres_cli::scrubbed(recorder->playerResponse))) {
         std::cerr << "Cannot write " << args.dumpPath << '\n';
         return 1;
     }
