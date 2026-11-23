@@ -243,6 +243,13 @@ first for an artist's name, and an empty search holds one
    would otherwise hand a bot the same videos up to ten times.
 5. A failure on the first page is that failure with an empty list. A failure
    on a later page is that failure with what was read so far.
+6. Added on 2026-11-23, after the first build: a first page that counts
+   results but holds no video does not stop the loop when it offers a
+   continuation. The next page is read once; its videos are the results,
+   and when it has none either, and page one held more than a channel or
+   the empty search's promo, the search is `Parse`
+   (`SearchPage::counted`, `SearchPage::unreadable`). A first page holding
+   only a channel, with no continuation, is Ok and empty.
 
 Log one Debug line per page ("search page N: K videos").
 

@@ -523,6 +523,92 @@ TEST_CASE("a first page that counts results but holds no video the library can r
     TestResolver test;
     test.http->apiBodies["search"] = {firstPage(section(unknownItem), "12")};
     CHECK(test.resolver.search(artist(), 5).status.code == Error::Parse);
+
+    // Neither a correction card nor a shelf alone tells the reader where the
+    // videos went: still Parse.
+    for (const char *card : {R"({"showingResultsForRenderer":{}})", R"({"didYouMeanRenderer":{}})",
+                             R"({"shelfRenderer":{}})", R"({"reelShelfRenderer":{}})"}) {
+        const std::string shown = card;
+        CAPTURE(shown);
+        CHECK(parseSearchResponse(firstPage(section(shown), "12"), SearchPageKind::First).status.code == Error::Parse);
+    }
+    // Nor does a section list holding no item section at all.
+    CHECK(parseSearchResponse(firstPage(R"({"richGridRenderer":{}})", "12"), SearchPageKind::First).status.code
+          == Error::Parse);
+    CHECK(parseSearchResponse(firstPage(section(""), "12"), SearchPageKind::First).status.code == Error::Parse);
+}
+
+TEST_CASE("a first page that holds only a channel is no alarm, and leads on to the videos when it can")
+{
+    // A query that matches a channel and no video.
+    const std::string channel = R"({"channelRenderer":{"channelId":"UCx"}})";
+    const auto alone = parseSearchResponse(firstPage(section(channel), "1"), SearchPageKind::First);
+    REQUIRE(alone);
+    CHECK(alone.value.results.empty());
+    CHECK(alone.value.counted);
+    CHECK_FALSE(alone.value.unreadable);
+    TestResolver lone;
+    lone.http->apiBodies["search"] = {firstPage(section(channel), "1")};
+    const auto none = lone.resolver.search(artist(), 5);
+    REQUIRE(none);
+    CHECK(none.value.empty());
+    CHECK(lone.http->requests.size() == 1);
+
+    // A channel that fills page one, with the videos on page two.
+    TestResolver test;
+    test.http->apiBodies["search"] = {firstPage(section(channel) + "," + continuationItem("T1"), "100"),
+                                      furtherPage(section(video("aaaaaaaaaaa") + "," + video("bbbbbbbbbbb")))};
+    const auto found = test.resolver.search(artist(), 5);
+    REQUIRE(found);
+    CHECK(idsOf(found.value) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb"});
+    CHECK(test.http->requests.size() == 2);
+    CHECK_FALSE(test.logged(ytres::LogLevel::Warning));
+
+    // ... or with nothing on page two either: Ok and empty, since a channel
+    // is something the reader knows.
+    TestResolver empty;
+    empty.http->apiBodies["search"] = {firstPage(section(channel) + "," + continuationItem("T1"), "100"),
+                                       furtherPage(section(""))};
+    const auto nothing = empty.resolver.search(artist(), 5);
+    REQUIRE(nothing);
+    CHECK(nothing.value.empty());
+    CHECK(empty.http->requests.size() == 2);
+}
+
+TEST_CASE("a first page with no video it can read but a continuation is judged by the page it leads to")
+{
+    const std::string unknownItem = R"({"lockupViewModel":{}})";
+    const auto page =
+        parseSearchResponse(firstPage(section(unknownItem) + "," + continuationItem("T1"), "12"), SearchPageKind::First);
+    REQUIRE(page);
+    CHECK(page.value.unreadable);
+    CHECK(page.value.next.token == "T1");
+
+    // The next page has videos: they are the results.
+    TestResolver test;
+    test.http->apiBodies["search"] = {firstPage(section(unknownItem) + "," + continuationItem("T1"), "12"),
+                                      furtherPage(section(video("aaaaaaaaaaa")))};
+    const auto found = test.resolver.search(artist(), 5);
+    REQUIRE(found);
+    CHECK(idsOf(found.value) == std::vector<std::string>{"aaaaaaaaaaa"});
+
+    // It has none either: Parse, after two requests.
+    TestResolver moved;
+    moved.http->apiBodies["search"] = {firstPage(section(unknownItem) + "," + continuationItem("T1"), "12"),
+                                       furtherPage(section(unknownItem) + "," + continuationItem("T2"))};
+    const auto failed = moved.resolver.search(artist(), 5);
+    CHECK(failed.status.code == Error::Parse);
+    CHECK(failed.status.message == "The search response counts results but holds no video the library can read");
+    CHECK(failed.value.empty());
+    CHECK(moved.http->requests.size() == 2);
+
+    // A first page that counts nothing and brings nothing still ends there.
+    TestResolver uncounted;
+    uncounted.http->apiBodies["search"] = {firstPage(section(unknownItem) + "," + continuationItem("T1"), "0")};
+    const auto empty = uncounted.resolver.search(artist(), 5);
+    REQUIRE(empty);
+    CHECK(empty.value.empty());
+    CHECK(uncounted.http->requests.size() == 1);
 }
 
 TEST_CASE("a continuation inside an item section serves when none sits beside the sections, as yt-dlp reads it")

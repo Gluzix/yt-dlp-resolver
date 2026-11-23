@@ -361,6 +361,7 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     std::set<std::string> idsFound;
     innertube::Continuation next;
     std::set<std::string> tokensSent;
+    bool firstUnreadable = false; // page one counted results but held none it could read
     for (int pageNumber = 1;; ++pageNumber) {
         Result<innertube::SearchPage> page = askSearch(*web, text, visitorData, next, call);
         // A later page's failure keeps what the pages before it brought:
@@ -381,8 +382,18 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
             found.push_back(std::move(result));
             ++added;
         }
-        // A page that brought no videos promises none on the next.
-        if (found.size() >= max || page.value.next.token.empty() || results.empty()) {
+        // Page one held no video it could read, and neither does the page it
+        // led to: the results have moved somewhere the reader does not look.
+        if (pageNumber == 2 && firstUnreadable && results.empty()) {
+            return {{Error::Parse, innertube::UNREADABLE_SEARCH}, std::move(found)};
+        }
+        // A page that brought no videos promises none on the next - but for a
+        // first page that counts results and leads on: a channel alone ahead
+        // of the videos, or a layout the reader does not know, is worth the
+        // one page more that tells them apart.
+        const bool followEmpty = pageNumber == 1 && page.value.counted;
+        firstUnreadable = followEmpty && page.value.unreadable;
+        if (found.size() >= max || page.value.next.token.empty() || (results.empty() && !followEmpty)) {
             break;
         }
         // Cut short of max, not finished: the caller must hear of it.
@@ -393,7 +404,7 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
         }
         // A page of nothing but videos already handed on is a feed going
         // round: the next would bring the same again.
-        if (added == 0) {
+        if (added == 0 && !results.empty()) {
             log(LogLevel::Warning, "The search repeats on page " + std::to_string(pageNumber)
                                        + " only videos it already read; stopping there");
             break;
