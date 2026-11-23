@@ -243,8 +243,8 @@ checks that a warm resolve is one request, cancels a request to the
 unroutable 10.255.255.1 and a live resolve at 100 ms and wants both back
 within 200 ms, walks the client ladder from `web` to `visionos`, searches
 once ("Rick Astley", five videos) and wants each result to carry a valid
-id, a title and a channel, and lists the first 150 videos of a 447-video
-playlist and wants two requests, a title, a count above 150 and 150 entries
+id, a title and a channel, and lists the first 150 videos of a playlist of
+about 450 (447 when its fixtures were recorded) and wants two requests, a title, a count above 150 and 150 entries
 with valid ids and titles. The search and the playlist are what notice
 YouTube changing the shape of those answers: the offline tests only replay
 the answers recorded on 2026-10-01. It is built with everything else but

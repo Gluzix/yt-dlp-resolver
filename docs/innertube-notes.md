@@ -15,6 +15,10 @@ _DEFAULT_CLIENTS        = ('visionos', 'web')
 _DEFAULT_JSLESS_CLIENTS = ('visionos',)
 ```
 
+On 2026-11-23 the first of these read `('tv_samsung', 'visionos', 'web')`;
+the second, the one that matters here, was unchanged. See "Verified live",
+"M3 and M4, the first build".
+
 The client definition, verbatim:
 
 ```python
@@ -274,6 +278,73 @@ M2, the same day and line:
   `curl_easy_perform`, which polls its progress callback about once a
   second while connecting, and after 120 to 127 ms through the multi
   interface's 20 ms polls.
+
+M3 and M4, the first build, 2026-11-23, same PC and line. Search and
+playlists were written and reviewed without a compiler; this was their first
+build and their first run, and the fix round that followed it.
+
+- **The build.** A clean rebuild of all four targets at `/W4 /permissive-`:
+  0 warnings, 0 errors. `ytres_tests` passed 167 cases and 1244 assertions
+  before the fix round, 187 and 1560 after it. `ytres_live_tests` passed 7
+  cases and 368 assertions both times: a cancel at 100 ms returned at 108 to
+  126 ms, connect or resolve; a search was Ok in 591 to 612 ms, five videos,
+  one request; the long playlist listed 150 of 450 videos in two requests in
+  about 1.5 s; the ladder fell through `web` to `visionos`.
+- **The harness.** `--search "rick astley never gonna give you up" --max 25`
+  gave 25 distinct videos over two pages. `--playlist
+  PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` gave 150 distinct entries;
+  the 7-video `PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk` its title and count; a
+  playlist that does not exist `Unavailable`, "The playlist does not
+  exist."; a mix id `BadInput`. A `--dump` of a live search page and of a
+  live playlist page held no address but 203.0.113.7 and no visitor data but
+  `FIXTURE`, and had the shape of the recorded fixtures.
+- **Against yt-dlp 2026.08.19.** `tools/differential.py`: 7 videos, 0
+  mismatched, ytres about 1.0 s each against 2.0 to 4.5 s for yt-dlp. Both
+  playlists listed the same ids in the same order as `yt-dlp
+  --flat-playlist` (7 of 7, 150 of 150), as did a channel's uploads
+  (`UU...`, 120 of 120), an album (`OLAK5uy_...`, 10 of 10) and, once the
+  library took its prefix, a YouTube Music curated list (`RDCLAK5uy_...`,
+  52 of 52). Searches shared 6 or 7 of their first 10 results with yt-dlp's,
+  the first one the same, in an order that differs a little, as expected.
+- **The long playlist has grown.** `PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4`
+  counts 450 videos now; its fixtures, recorded on 2026-10-01, say 447 and
+  keep saying it.
+- **Upstream drift.** yt-dlp master that day: `_DEFAULT_CLIENTS` is
+  `('tv_samsung', 'visionos', 'web')`, `tv_samsung` new and first.
+  `_DEFAULT_JSLESS_CLIENTS` is still `('visionos',)`, the `visionos` row is
+  unchanged, `web`'s `clientVersion` is still `2.20260708.00.00`, and
+  `_SEARCH_PARAMS` is still `EgIQAfABAQ==`. The `tv_samsung` row:
+
+  ```python
+  'tv_samsung': {
+      'INNERTUBE_CONTEXT': {
+          'client': {
+              'clientName': 'TVHTML5',
+              'clientVersion': '5.20260707',
+              'deviceMake': 'Samsung',
+              'deviceModel': 'UKS9800',
+              'userAgent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1',
+              'osName': 'Tizen',
+              'osVersion': '2.4.0',
+          },
+      },
+      'INNERTUBE_CONTEXT_CLIENT_NAME': 7,
+      'SUPPORTS_COOKIES': True,
+  },
+  ```
+
+  It has no `'REQUIRE_JS_PLAYER': False`, so it needs the JS player: of no
+  use to this library, which has none. A build of the library from
+  2026-09-24 still resolved `dQw4w9WgXcQ` and `jNQXAC9IVRw` that day.
+- **What the probing found**, each recorded where it belongs above or
+  below: `ytres_cli`'s arguments came in the ANSI code page (1250), so a
+  Polish query reached YouTube with U+FFFD in it and only YouTube's
+  correction found the right videos (fixed with a UTF-8 manifest; a query
+  that is not UTF-8 now costs a warning in the log); a private video on
+  `visionos` says "Please sign in" and files the reason under
+  `playabilityStatus.messages[]`; a video made for kids is `UNPLAYABLE` on
+  `visionos` though YouTube describes it; `RDCLAK5uy_` lists are public; and
+  YouTube announces a corrected query with a `showingResultsForRenderer`.
 
 ## Search and playlists
 
