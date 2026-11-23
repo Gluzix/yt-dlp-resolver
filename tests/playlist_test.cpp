@@ -549,9 +549,11 @@ TEST_CASE("a lockup's length is its first badge's, under either overlay yt-dlp r
     const std::string noBadge = R"({"lockupViewModel":{"contentId":"ccccccccccc","contentType":"LOCKUP_CONTENT_TYPE_VIDEO",)"
                                 R"("metadata":{"lockupMetadataViewModel":{"title":{"content":"C"}}}}})";
     const auto page = parsePlaylistResponse(firstPage(lockup("aaaaaaaaaaa", "A", "2:31:48") + "," + otherOverlay + ","
-                                                      + noBadge + "," + lockup("ddddddddddd", "D", "LIVE")));
+                                                      + noBadge + "," + lockup("ddddddddddd", "D", "LIVE") + ","
+                                                      + lockup("eeeeeeeeeee", "E", "99:99:99")));
     REQUIRE(page);
-    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{9108, 754, 0, 0});
+    // A malformed badge is no length, not 362439 seconds.
+    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{9108, 754, 0, 0, 0});
 }
 
 TEST_CASE("the continuation to follow is the first among the entries, never the one beside the item section")

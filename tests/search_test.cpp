@@ -289,8 +289,14 @@ TEST_CASE("durationSeconds reads m:ss and h:mm:ss, and nothing else")
     CHECK(durationSeconds("2:31:48") == 9108);
     CHECK(durationSeconds("0:07") == 7);
     CHECK(durationSeconds("12:00:00") == 43200);
+    CHECK(durationSeconds("0:59") == 59);
+    CHECK(durationSeconds("59:59") == 3599);
+    CHECK(durationSeconds("100:00:00") == 360000);
+    CHECK(durationSeconds("123456789:00") == 7407407340); // a long first group still reads
     for (const char *text : {"", "LIVE", "1:2x", "Upcoming", "45", ":36", "4:", "4::36", "1:2:3:4", " 4:36", "4:36 ",
-                             "-4:36", "1234567890:00"}) {
+                             "-4:36", "1234567890:00",
+                             // a later group past 59, or not two digits
+                             "99:99:99", "1:60", "1:99", "1:60:00", "0:5", "1:2:3", "1:005", "1:5:00"}) {
         const std::string shown = text;
         CAPTURE(shown);
         CHECK(durationSeconds(text) == 0);
