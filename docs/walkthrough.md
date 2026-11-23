@@ -283,15 +283,32 @@ which `estimatedResults` is above 0 but no `videoRenderer` can be read is
 otherwise come back "nothing found" — an answer the bot shows the user —
 instead of a failure that sends it to yt-dlp.
 
-**Step 4 — the loop.** Append results until `max`; while short of it, the
-page gave a continuation, the page brought at least one video and fewer
-than ten pages were read, send the continuation — the same `query` and
-`params` again, plus `continuation` and `clickTracking`, as yt-dlp does.
-Every page goes through `Impl::send()`, so the cancel check and the one
-deadline cover all of them. A failure on page one is that failure with an
-empty list; on a later page, it is that failure *with the videos read so
-far*: `Result` carries both, and a caller cancelled on page three can still
-use the first two.
+Two exceptions, both added after the first build. A first page that holds
+nothing but a channel (a query that names a channel and no video) or the
+empty search's promo is no alarm: it is an empty list. And a first page
+with no video that leads on is not judged until the page after it has been
+read (`SearchPage::counted` and `unreadable` carry the verdict to the
+loop): that page's videos are the results, and if it has none either the
+search is `Parse` — unless page one held only the channel or the promo,
+which stays an empty list.
+
+**Step 4 — the loop.** Append results until `max`, skipping any id already
+listed: YouTube can hand out one video twice, on a page or across two, and
+a bot would queue it twice. While short of `max` and the page gave a
+continuation, send it — the same `query` and `params` again, plus
+`continuation` and `clickTracking`, as yt-dlp does. A page that brought no
+video ends the search, but for a first page that counts results: that one
+is followed once, which is how the exceptions above get their second page.
+Three guards stop a feed that goes round, each with a warning in the log:
+a page of nothing but videos already listed, a continuation token already
+sent, and the tenth page, a cap of the library's own (about two hundred
+videos); a search cut there is still Ok. Every page goes through
+`Impl::send()`, so the cancel check and the one deadline cover all of
+them. A failure on page one is that failure with an empty list; on a later
+page, it is that failure *with the videos read so far*: `Result` carries
+both, and a caller cancelled on page three can still use the first two.
+That holds for a cancel check that throws, too: `send()` turns it into
+`Internal` for that page alone.
 
 *Questions: why is "Ok, but empty" a more dangerous answer than an error
 when YouTube changes something, and why does the `estimatedResults` rule
@@ -376,7 +393,9 @@ are what the bot filters today. A playlist that does not exist answers
 HTTP 200 with no contents and an `ERROR` alert: that is `Unavailable`,
 with YouTube's own sentence. And search's guard returns: a first page that
 counts videos but holds no readable entry is `Parse`, not an empty
-playlist.
+playlist. "Readable" means a video in a layout the reader knows with a
+valid id, kept or dropped: a first page of nothing but private or deleted
+videos is Ok, with no entries, and leads on to the rest of the list.
 
 **Step 3 — the loop.** As for search: append until `max`, and follow the
 continuation while short of it, so the first 50 videos of a 6000-video
@@ -393,8 +412,8 @@ comes back with the playlist read so far.
 
 *Questions: why does the reader ignore the continuation beside the item
 section, and how would a test notice if it took that one? Why is the count
-what tells "empty" from "unreadable"? Why may a playlist page with no
-entries lead on when a search page with none may not?*
+what tells "empty" from "unreadable"? Why may any playlist page with no
+entries lead on, but only a counted first search page?*
 
 ## 6. Errors, and what the bot should do with them
 
