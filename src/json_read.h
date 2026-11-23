@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -81,12 +82,19 @@ inline std::int64_t toInt64(std::string_view text)
 }
 
 // YouTube sends some numbers as JSON numbers and others as strings
-// ("lengthSeconds": "212"). Either reads; missing or malformed is 0.
+// ("lengthSeconds": "212"). Either reads; missing or malformed is 0, and so
+// is a fraction (1e3 is a float to the parser). An unsigned number past the
+// int64 range is clamped to its top rather than wrapped to a negative one.
 inline std::int64_t readInt(const json &object, const char *key)
 {
     const auto it = object.find(key);
     if (it == object.end()) {
         return 0;
+    }
+    if (it->is_number_unsigned()) {
+        const std::uint64_t value = it->get<std::uint64_t>();
+        const auto top = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+        return value > top ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(value);
     }
     if (it->is_number_integer()) {
         return it->get<std::int64_t>();

@@ -19,7 +19,6 @@ using nlohmann::ordered_json;
 using jsonread::child;
 using jsonread::childArray;
 using jsonread::durationSeconds;
-using jsonread::readInt;
 using jsonread::readString;
 using jsonread::textOf;
 
@@ -141,6 +140,26 @@ void appendVideos(const json &section, std::vector<SearchResult> &results, Conti
     }
 }
 
+// Whether YouTube's estimatedResults says there is anything at all. It
+// comes as a digit string ("584471", "0"), but the alarm below must not go
+// quiet should it come as "1,234", a float or a number past int64: any
+// number but zero, or any string with a digit other than 0, counts.
+bool countsResults(const json &root)
+{
+    const auto it = root.find("estimatedResults");
+    if (it == root.end()) {
+        return false;
+    }
+    if (it->is_number()) {
+        return it->get<double>() != 0.0;
+    }
+    if (it->is_string()) {
+        const std::string &text = it->get_ref<const std::string &>();
+        return text.find_first_of("123456789") != std::string::npos;
+    }
+    return false;
+}
+
 Result<SearchPage> readSearchResponse(const json &root, SearchPageKind kind)
 {
     const json *items = pageItems(root, kind);
@@ -173,7 +192,7 @@ Result<SearchPage> readSearchResponse(const json &root, SearchPageKind kind)
     // results have moved into a renderer it does not know. Saying "nothing
     // found" would keep every caller from falling back to another resolver.
     // Only a first page says so; a further page with nothing in it is the end.
-    if (kind == SearchPageKind::First && page.results.empty() && readInt(root, "estimatedResults") > 0) {
+    if (kind == SearchPageKind::First && page.results.empty() && countsResults(root)) {
         return {{Error::Parse, "The search response counts results but holds no video the library can read"}, {}};
     }
     return {{}, std::move(page)};

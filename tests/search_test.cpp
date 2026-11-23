@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <stdexcept>
 #include <string>
@@ -27,6 +28,7 @@ using ytres::innertube::parseSearchResponse;
 using ytres::innertube::SearchPageKind;
 using ytres::innertube::searchRequest;
 using ytres::jsonread::durationSeconds;
+using ytres::jsonread::readInt;
 using ytres::jsonread::textOf;
 using namespace std::chrono_literals;
 
@@ -295,6 +297,22 @@ TEST_CASE("durationSeconds reads m:ss and h:mm:ss, and nothing else")
     }
 }
 
+TEST_CASE("readInt reads a number or a digit string, clamps an unsigned one past int64, and reads the rest as 0")
+{
+    const json object = json::parse(R"({"n":212,"s":"212","neg":-5,"huge":18446744073709551615,"top":9223372036854775807,)"
+                                    R"("float":1e3,"text":"1,234","bool":true,"null":null})");
+    CHECK(readInt(object, "n") == 212);
+    CHECK(readInt(object, "s") == 212);
+    CHECK(readInt(object, "neg") == -5);
+    CHECK(readInt(object, "huge") == INT64_MAX); // not wrapped to -1
+    CHECK(readInt(object, "top") == INT64_MAX);
+    CHECK(readInt(object, "float") == 0);
+    CHECK(readInt(object, "text") == 0);
+    CHECK(readInt(object, "bool") == 0);
+    CHECK(readInt(object, "null") == 0);
+    CHECK(readInt(object, "missing") == 0);
+}
+
 TEST_CASE("textOf reads a label written any of InnerTube's three ways")
 {
     const json object = json::parse(R"({"simple":{"simpleText":"S"},"runs":{"runs":[{"text":"R1"},{"text":"R2"},7]},)"
@@ -473,6 +491,20 @@ TEST_CASE("a first page that counts results but holds no video the library can r
     CHECK(moved.status.code == Error::Parse);
     CHECK(moved.status.message == "The search response counts results but holds no video the library can read");
     CHECK(moved.value.results.empty());
+
+    // Whatever form the count comes in, a count above nothing keeps the alarm on.
+    for (const char *count : {R"("1,234")", "18446744073709551615", "1e3", "12", R"(" 7")", "-5"}) {
+        const std::string shown = count;
+        CAPTURE(shown);
+        const std::string page = R"({"estimatedResults":)" + shown + "," + firstPage(section(unknownItem)).substr(1);
+        CHECK(parseSearchResponse(page, SearchPageKind::First).status.code == Error::Parse);
+    }
+    for (const char *count : {R"("0")", "0", "0.0", R"("")", "null", "[]"}) {
+        const std::string shown = count;
+        CAPTURE(shown);
+        const std::string page = R"({"estimatedResults":)" + shown + "," + firstPage(section(unknownItem)).substr(1);
+        CHECK(parseSearchResponse(page, SearchPageKind::First));
+    }
 
     // Nothing counted and nothing there is an empty search, as recorded.
     CHECK(parseSearchResponse(firstPage(section(unknownItem), "0"), SearchPageKind::First));

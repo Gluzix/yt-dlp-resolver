@@ -334,7 +334,8 @@ POST https://www.youtube.com/youtubei/v1/search?prettyPrint=false
   covers them.
 - `estimatedResults` is a string on every page, first or further:
   `"584471"` for the artist, `"0"` for the empty search. The library takes
-  a first page that counts results but holds no `videoRenderer` as a sign
+  any number but zero, or any string with a digit other than 0, as a count
+  (so `"1,234"` would still count), and it takes a first page that counts results but holds no `videoRenderer` as a sign
   that the results moved into a renderer it does not read, and fails it
   with `Parse` rather than report nothing found.
 
