@@ -6,6 +6,7 @@
 #include "playlist.h"
 #include "search.h"
 #include "url_parse.h"
+#include "utf8.h"
 #include "visitor_cache.h"
 #include "watch_page.h"
 
@@ -330,6 +331,13 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     }
     if (query.find_first_not_of(" \t\r\n") == std::string_view::npos) {
         return {{Error::BadInput, "The search query is empty"}, {}};
+    }
+    // Sent all the same, with U+FFFD where the bytes break, as the request
+    // has always been written; YouTube often corrects the query back. But a
+    // caller that mangles its text, with a code page conversion say, must be
+    // able to find out from its log.
+    if (!utf8::isValid(query)) {
+        log(LogLevel::Warning, "The search query is not valid UTF-8; YouTube gets U+FFFD in place of its broken bytes");
     }
     // yt-dlp searches as the web client whatever it plays with, and so does
     // the library: Options::clients is the player's ladder.

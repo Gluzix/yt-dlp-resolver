@@ -19,6 +19,7 @@ add_executable(ytres_tests
     curl_http_client_test.cpp
     search_test.cpp
     playlist_test.cpp
+    utf8_test.cpp
 )
 target_link_libraries(ytres_tests PRIVATE ytres doctest::doctest nlohmann_json::nlohmann_json)
 # The internals are tested directly, not only through the public API.

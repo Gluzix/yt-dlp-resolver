@@ -780,6 +780,25 @@ TEST_CASE("a search for no videos, or for nothing, is BadInput and sends nothing
     CHECK(test.http->requests.empty());
 }
 
+TEST_CASE("a search query that is not UTF-8 goes out with U+FFFD in place of its broken bytes, and the log says so")
+{
+    // The Polish l with stroke as code page 1250 writes it, 0xB3.
+    TestResolver broken;
+    broken.http->apiBodies["search"] = {readFixture("search_videos.json")};
+    CHECK(broken.resolver.search("Dawid Podsiad\xB3o", 1));
+    REQUIRE(broken.http->requests.size() == 1);
+    CHECK(json::parse(broken.http->requests[0].body)["query"] == "Dawid Podsiad\xEF\xBF\xBDo");
+    CHECK(broken.logLine(ytres::LogLevel::Warning, "The search query is not valid UTF-8") != nullptr);
+
+    // The same name in UTF-8 goes out as it is, and nothing is logged.
+    TestResolver valid;
+    valid.http->apiBodies["search"] = {readFixture("search_videos.json")};
+    CHECK(valid.resolver.search(artist(), 1));
+    REQUIRE(valid.http->requests.size() == 1);
+    CHECK(json::parse(valid.http->requests[0].body)["query"] == artist());
+    CHECK_FALSE(valid.logged(ytres::LogLevel::Warning));
+}
+
 TEST_CASE("a search sends the visitor data a resolve cached, and fetches none itself")
 {
     TestResolver warm;
