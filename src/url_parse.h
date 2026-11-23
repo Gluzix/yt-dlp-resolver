@@ -19,7 +19,8 @@ bool isVideoId(std::string_view text);
 Result<std::string> parseVideoId(std::string_view urlOrId);
 
 // The playlist a link names: the list= of a /playlist or /watch link on
-// youtube.com or any of its subdomains, of a youtu.be link, or a bare id.
+// youtube.com or any of its subdomains, of an /embed/videoseries link there
+// or on youtube-nocookie.com, of a youtu.be link, or a bare id.
 // The scheme may be https, http or left out, as for parseVideoId().
 // Only playlists anyone can open: ids starting PL, UU, FL, OLAK5uy_, EC, UL,
 // PU or RDCLAK5uy_ (YouTube Music's curated lists) followed by ten or more

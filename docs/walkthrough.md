@@ -324,8 +324,8 @@ src/resolver.cpp        Impl::playlist(): the loop
 
 **Step 0 — the guards and the id.** Search's opening (the `try`/`catch`,
 the moved-from check, `callDeadline()`), then `max == 0` is `BadInput`,
-then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, or
-of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
+then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, of
+an `/embed/videoseries` link, or of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
 `_PLAYLIST_ID_RE` pass — `PL`, `UU` (a channel's uploads), `OLAK5uy_` (an
 album) and their kin, plus `RDCLAK5uy_` (YouTube Music's curated lists,
 public despite their `RD`). A mix (any other `RD...`), Watch Later (`WL`) or Liked videos

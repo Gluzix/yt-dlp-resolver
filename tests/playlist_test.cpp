@@ -191,6 +191,9 @@ TEST_CASE("every playlist link form gives the playlist id")
         "www.youtube.com/playlist?list=" + id,
         "HTTPS://WWW.YouTube.com/playlist?list=" + id,
         "https://www.youtube.com/playlist?list=" + id + "#top",
+        "https://www.youtube.com/embed/videoseries?list=" + id,
+        "https://www.youtube-nocookie.com/embed/videoseries?list=" + id,
+        "https://youtube-nocookie.com/embed/videoseries?si=FIXTURE&list=" + id,
         id,
         "  " + id + "\n",
     };
@@ -277,6 +280,10 @@ TEST_CASE("anything that is not a public playlist link or id is BadInput")
         "https://user@www.youtube.com/playlist?list=" + id,
         "https://www.youtube.com:8080/playlist?list=" + id,
         "ftp://www.youtube.com/playlist?list=" + id,
+        "https://www.youtube-nocookie.com/playlist?list=" + id, // the embed host serves embeds only
+        "https://www.youtube.com/embed/other?list=" + id,
+        "https://www.youtube.com/embed/videoseries/x?list=" + id,
+        "https://evil.example/embed/videoseries?list=" + id,
     };
     for (const std::string &input : rejected) {
         CAPTURE(input);

@@ -242,7 +242,8 @@ public:
 
     // The first max videos of a public playlist, in its order, with its
     // title and how many videos YouTube says it has. Accepts a youtube.com
-    // /playlist or /watch link, or a youtu.be link, that carries list=, or a
+    // /playlist or /watch link, an /embed/videoseries link there or on
+    // youtube-nocookie.com, or a youtu.be link, that carries list=, or a
     // bare playlist id. One request per hundred videos, and no more requests
     // than max needs: a 6000-video playlist asked for its first 50 costs one.
     // Videos YouTube hides as unavailable are not listed, nor is one titled

@@ -98,7 +98,8 @@ playlist in its order, with its title and the count YouTube gives for it
 (`totalCount`, 0 when unknown). The count is read from YouTube's English
 text ("447 episodes"), so with an `Options::language` other than `"en"` it
 may be wrong or 0. It takes a `youtube.com` `/playlist` or
-`/watch` link, or a `youtu.be` link, that carries `list=`, or a bare id
+`/watch` link, an `/embed/videoseries` link (on `youtube.com` or
+`youtube-nocookie.com`), or a `youtu.be` link, that carries `list=`, or a bare id
 starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL`, `PU` or `RDCLAK5uy_` (YouTube
 Music's curated playlists). Like a search it
 asks as the `web` client, sends the visitor data a resolve has cached and

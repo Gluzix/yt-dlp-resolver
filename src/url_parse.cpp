@@ -130,6 +130,13 @@ bool isYoutubeHost(const std::string &host)
     return isPlainHost(host) && (host == "youtube.com" || endsWith(host, ".youtube.com"));
 }
 
+// youtube-nocookie.com, where an embedded player is served from: a host for
+// /embed/videoseries only.
+bool isNocookieHost(const std::string &host)
+{
+    return host == "youtube-nocookie.com" || host == "www.youtube-nocookie.com";
+}
+
 bool isPublicPlaylistId(std::string_view id)
 {
     if (!isIdText(id)) {
@@ -199,7 +206,11 @@ Result<std::string> parsePlaylistId(std::string_view urlOrId)
     } else {
         const Link link = splitLink(input);
         const std::string_view page = link.path.substr(0, link.path.find_first_of("?#"));
-        if (link.host == "youtu.be" || (isYoutubeHost(link.host) && (page == "/playlist" || page == "/watch"))) {
+        // An embedded playlist's player, /embed/videoseries?list=, names its
+        // list the same way.
+        const bool embedded = page == "/embed/videoseries" && (isYoutubeHost(link.host) || isNocookieHost(link.host));
+        if (link.host == "youtu.be" || embedded
+            || (isYoutubeHost(link.host) && (page == "/playlist" || page == "/watch"))) {
             id = queryValue(link.path, "list").value_or(std::string_view{});
         }
     }

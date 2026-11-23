@@ -72,6 +72,11 @@ class Resolver
 Result<std::string> parsePlaylistId(std::string_view urlOrId);
 ```
 
+Also accepted since 2026-11-23: `/embed/videoseries?list=`, the link of an
+embedded playlist player, on a YouTube host or on `youtube-nocookie.com`,
+as yt-dlp's tab regex accepts it. The path stays case-sensitive, as
+YouTube's paths are.
+
 Changed on 2026-11-23, after the first build: `RDCLAK5uy_` followed by ten
 or more id characters is public too. It is YouTube Music's curated playlists
 ("The Hit List"), which users share from music.youtube.com; they start like a
