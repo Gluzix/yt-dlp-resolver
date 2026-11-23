@@ -86,9 +86,12 @@ scheduled one with `isUpcoming`: the first result that is neither is the
 one to play. `max` of 0 or a blank query is `BadInput`. A first page on
 which YouTube counts results but holds none the library can read is `Parse`,
 not an empty list: YouTube has changed its answer, and the caller should
-fall back rather than tell the user nothing was found. A first page that
-holds only a channel is no such page, and one that leads on is judged by
-the page after it. When a later page
+fall back rather than tell the user nothing was found. A first page with no
+video that leads on to a further page is judged by that page: its videos are
+the results, and if it has none either the search is `Parse` - unless page
+one held nothing but a channel (a query that names a channel and no video)
+or the empty search's promo, which is an empty list, as is such a page with
+no further page. When a later page
 fails, the result carries that failure *and* the videos read before it, so
 a search cancelled on page three still has the first two.
 

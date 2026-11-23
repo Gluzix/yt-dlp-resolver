@@ -227,10 +227,11 @@ public:
     // A first page where YouTube counts results but holds none the library
     // can read is Parse, not an empty list: YouTube has changed its answer,
     // and the caller should fall back rather than report nothing found.
-    // Two exceptions: a first page that holds nothing but a channel (a query
-    // that names a channel and no video) is an empty list, and one that
-    // leads on to a further page is judged by that page - its videos are
-    // the results, and if it has none either the search is Parse.
+    // A first page with no video that leads on to a further page is judged
+    // by that page: its videos are the results, and if it has none either
+    // the search is Parse - unless page one held nothing but a channel (a
+    // query that names a channel and no video) or the empty search's promo,
+    // which is an empty list, as is such a page with no further page.
     // Asked as the web client whatever Options::clients says: that list is
     // the player's ladder. Cached visitor data is sent when there is some,
     // but none is fetched for a search; with none cached, a later page
