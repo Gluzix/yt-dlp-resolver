@@ -50,6 +50,12 @@ target_link_libraries(ytres PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
 add_executable(ytres_cli cli/main.cpp)
 target_link_libraries(ytres_cli PRIVATE ytres)
 ytres_compile_options(ytres_cli)
+if(MSVC)
+    # UTF-8 as the process code page, so that argv reaches main() as UTF-8
+    # rather than in the system's ANSI code page, with no Win32 call in
+    # main.cpp. The linker merges it into the manifest it writes anyway.
+    target_sources(ytres_cli PRIVATE cli/utf8.manifest)
+endif()
 
 option(YTRES_TESTS "Build the tests" ON)
 if(YTRES_TESTS)

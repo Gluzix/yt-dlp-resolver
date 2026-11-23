@@ -159,6 +159,19 @@ scrubbed; `--formats` and `--client` are refused with `--playlist` too.
 Stream URLs expire after a few hours and work only from the IP address that
 asked for them.
 
+Text goes in and out as UTF-8. On Windows `ytres_cli` carries a manifest
+that makes UTF-8 its code page, so its arguments - a query such as
+"Dawid Podsiadło", or a `--dump` path - reach it intact from Git Bash,
+`cmd.exe` and PowerShell alike. Windows older than 10 version 1903 ignores
+that manifest and hands the arguments over in the system's ANSI code page,
+where "ł" becomes a byte that is not UTF-8 and a character outside the code
+page becomes `?`. The manifest does not change how a console shows the
+output: Git Bash (mintty) shows the titles as they are, and so does a file
+or a pipe, but a default `cmd.exe` or PowerShell console shows "Podsiadło" as
+mojibake until it is told to read UTF-8 - `chcp 65001` in `cmd.exe`,
+`[Console]::OutputEncoding = [Text.Encoding]::UTF8` in PowerShell - or the
+output is redirected to a file.
+
 ## Errors
 
 Every call returns a `Status` whose `code` says what went wrong and whose
