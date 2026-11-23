@@ -207,6 +207,17 @@ Without the array the reader cannot tell the answer from a first page, finds
 no section list in the stub `contents`, and fails it, where yt-dlp would take
 it for the end of the list.
 
+Narrowed on 2026-11-23, after the first build: "yields no entry" meant "keeps
+no entry", so a first page whose videos were all dropped as `[Private video]`,
+`[Deleted video]` or unplayable was `Parse`, and its continuation, lost with
+it, was never followed. The rule now asks whether the page held a video in a
+layout the reader knows (a `lockupViewModel` of `LOCKUP_CONTENT_TYPE_VIDEO`,
+or a `playlistVideoRenderer`), kept or dropped. Such a page is Ok, with its
+continuation, and `MAX_EMPTY_PLAYLIST_PAGES` bounds what follows. A first page
+of nothing but lockups that are no video (playlists, channels) under a count
+above 0 stays `Parse`: a playlist of videos would not hold only those, and a
+renamed content type would look exactly like it.
+
 **Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
 does for every feed: `PlaylistPage` carries the page's
 `responseContext.visitorData` when it passes `visitorDataRefusal()`

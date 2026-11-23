@@ -658,6 +658,39 @@ TEST_CASE("a first page that counts videos but holds none the library can read i
     CHECK(listed.value.entries.empty());
 }
 
+TEST_CASE("a first page whose videos are all private or deleted is read right, and leads on to the rest")
+{
+    // Should YouTube ever list them: videos the reader knows, every one dropped.
+    const std::string hidden = lockup("aaaaaaaaaaa", "[Private video]") + "," + lockup("bbbbbbbbbbb", "[Deleted video]") + ","
+                             + renderer("ccccccccccc", "Gone", R"(,"isPlayable":false)");
+    const auto page = parsePlaylistResponse(firstPage(hidden + "," + continuationItem("T1"), "5 videos"));
+    REQUIRE(page);
+    CHECK(page.value.entries.empty());
+    CHECK(page.value.totalCount == 5);
+    CHECK(page.value.next.token == "T1");
+
+    // Through the Resolver: page two is asked for and listed.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {firstPage(hidden + "," + continuationItem("T1"), "5 videos"),
+                                      furtherPage(lockup("ddddddddddd") + "," + lockup("eeeeeeeeeee"))};
+    const auto list = test.resolver.playlist(LONG_PLAYLIST, 50);
+    REQUIRE(list);
+    CHECK(idsOf(list.value.entries) == std::vector<std::string>{"ddddddddddd", "eeeeeeeeeee"});
+    CHECK(list.value.totalCount == 5);
+    CHECK(test.http->requests.size() == 2);
+
+    // With nothing to lead on to, the playlist is Ok and lists nothing.
+    const auto alone = parsePlaylistResponse(firstPage(hidden, "3 videos"));
+    REQUIRE(alone);
+    CHECK(alone.value.entries.empty());
+
+    // A first page of nothing but lockups that are not videos is still Parse:
+    // a playlist of videos would not hold only those.
+    const std::string others = lockup("PLaaaaaaaaaa", "A playlist", "", "LOCKUP_CONTENT_TYPE_PLAYLIST") + ","
+                             + lockup("UCaaaaaaaaaa", "A channel", "", "LOCKUP_CONTENT_TYPE_CHANNEL");
+    CHECK(parsePlaylistResponse(firstPage(others + "," + continuationItem("T1"), "5 videos")).status.code == Error::Parse);
+}
+
 TEST_CASE("a playlist page names the visitor YouTube took the caller for, when it may go out as a header")
 {
     const std::string page = firstPage(lockup("aaaaaaaaaaa"));

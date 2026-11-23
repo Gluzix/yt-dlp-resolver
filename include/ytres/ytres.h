@@ -256,9 +256,10 @@ public:
     // (RD..., but for YouTube Music's curated RDCLAK5uy_ lists, which are
     // public), Watch Later, Liked videos and the like are BadInput: they
     // belong to a signed-in viewer. max of 0 is BadInput. A first page where
-    // YouTube counts videos but holds none the library can read is Parse,
-    // not an empty playlist: YouTube has changed its answer, and the caller
-    // should fall back rather than report the playlist empty.
+    // YouTube counts videos but holds none the library can read (not merely
+    // none it may list: private and deleted videos are read, and dropped)
+    // is Parse, not an empty playlist: YouTube has changed its answer, and
+    // the caller should fall back rather than report the playlist empty.
     // totalCount is read from YouTube's English text ("447 episodes"), so
     // with an Options::language other than "en" it may be wrong or 0 - and
     // at 0, a first page the library cannot read passes for an empty
