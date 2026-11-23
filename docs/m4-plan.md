@@ -216,7 +216,9 @@ no entry", so a first page whose videos were all dropped as `[Private video]`,
 `[Deleted video]` or unplayable was `Parse`, and its continuation, lost with
 it, was never followed. The rule now asks whether the page held a video in a
 layout the reader knows (a `lockupViewModel` of `LOCKUP_CONTENT_TYPE_VIDEO`,
-or a `playlistVideoRenderer`), kept or dropped. Such a page is Ok, with its
+or a `playlistVideoRenderer`) with a valid video id, kept or dropped. A video
+whose id is missing or invalid does not count, so a moved or renamed id field
+still gives `Parse`. Such a page is Ok, with its
 continuation, and `MAX_EMPTY_PLAYLIST_PAGES` bounds what follows. A first page
 of nothing but lockups that are no video (playlists, channels) under a count
 above 0 stays `Parse`: a playlist of videos would not hold only those, and a
