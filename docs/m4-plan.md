@@ -227,8 +227,9 @@ renamed content type would look exactly like it.
 **Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
 does for every feed: `PlaylistPage` carries the page's
 `responseContext.visitorData` when it passes `visitorDataRefusal()`
-(`src/visitor_data.h`), and the loop sends it with the next page only when
-the cache holds nothing. It is never written into the cache.
+(`src/visitor_data.h`), and the loop sends the latest one with the
+following pages only when the cache holds nothing; a page that names none
+keeps the one before. It is never written into the cache.
 
 ## The loop (`Resolver::Impl::playlist` in `src/resolver.cpp`)
 

@@ -713,6 +713,31 @@ TEST_CASE("with no visitor data cached, a later search page carries what the pag
     CHECK(headerValue(test.http->requests[3], "X-Goog-Visitor-Id") == VISITOR_DATA);
 }
 
+TEST_CASE("with no visitor data cached, a page that names none passes on the latest an earlier page named")
+{
+    // yt-dlp's "or previous": an old visitor id beats none.
+    TestResolver test;
+    test.http->apiBodies["search"] = {
+        withVisitorData(R"("VDpage1%3D")", firstPage(section(videos(0, 3)) + "," + continuationItem("T1"))),
+        furtherPage(section(videos(10, 3)) + "," + continuationItem("T2")),
+        furtherPage(section(videos(20, 3))),
+    };
+    const auto found = test.resolver.search(artist(), 50);
+    REQUIRE(found);
+    CHECK(found.value.size() == 9);
+    REQUIRE(test.http->requests.size() == 3);
+    CHECK(headerValue(test.http->requests[0], "X-Goog-Visitor-Id").empty());
+    CHECK(headerValue(test.http->requests[1], "X-Goog-Visitor-Id") == "VDpage1%3D");
+    CHECK(headerValue(test.http->requests[2], "X-Goog-Visitor-Id") == "VDpage1%3D");
+    CHECK(json::parse(test.http->requests[2].body)["context"]["client"]["visitorData"] == "VDpage1%3D");
+
+    // Nor is it cached: the next resolve still fetches a watch page.
+    REQUIRE(test.resolver.resolve("dQw4w9WgXcQ"));
+    REQUIRE(test.http->requests.size() == 5);
+    CHECK(test.http->requests[3].method == "GET");
+    CHECK(headerValue(test.http->requests[4], "X-Goog-Visitor-Id") == VISITOR_DATA);
+}
+
 TEST_CASE("with visitor data cached, every search page carries the cached one")
 {
     TestResolver test;

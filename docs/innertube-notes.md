@@ -438,11 +438,12 @@ probed again:
   them. The library fetches no page for a search: YouTube answered the bare
   request on 2026-10-01, and the page would cost as much as the search. It
   sends the visitor data a resolve has cached, when there is some.
-- **Visitor data across pages.** yt-dlp sends the previous page's
-  `responseContext.visitorData` as `X-Goog-Visitor-Id` on page 2 and later.
-  The library does the same when it has no cached visitor data, after the
-  same check the watch page's value passes (`src/visitor_data.h`), and does
-  not cache it.
+- **Visitor data across pages.** yt-dlp sends the latest
+  `responseContext.visitorData` a page named as `X-Goog-Visitor-Id` on page
+  2 and later; a page without one keeps the previous value. The library
+  does the same when it has no cached visitor data, after the same check
+  the watch page's value passes (`src/visitor_data.h`), and does not cache
+  it.
 - **Length.** When a `videoRenderer` has no `lengthText`, yt-dlp reads the
   text of its `thumbnailOverlays[].thumbnailOverlayTimeStatusRenderer`; so
   does the library, taking the first.

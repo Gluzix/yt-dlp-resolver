@@ -235,9 +235,10 @@ ladder exists for the *player*, where clients differ in what YouTube lets
 them play. Search needs neither the player JavaScript nor a PO Token, and
 on 2026-10-01 YouTube answered it bare, so no watch page is fetched; if a
 resolve has cached visitor data, it goes along on every page. With none
-cached, page 2 and later carry the visitor data YouTube named on the page
-before (`responseContext.visitorData`), as yt-dlp does — checked by the
-same rule as the watch page's (`src/visitor_data.h`), and never cached.
+cached, page 2 and later carry the latest visitor data YouTube named on an
+earlier page (`responseContext.visitorData`; a page that names none keeps
+the one before), as yt-dlp does — checked by the same rule as the watch
+page's (`src/visitor_data.h`), and never cached.
 
 **Step 2 — the request.** `searchRequest()` hands two fields to
 `innertube::apiRequest()`, the builder every non-player InnerTube POST goes

@@ -234,7 +234,7 @@ public:
     // Asked as the web client whatever Options::clients says: that list is
     // the player's ladder. Cached visitor data is sent when there is some,
     // but none is fetched for a search; with none cached, a later page
-    // carries the visitor data YouTube named on the page before it, as
+    // carries the latest visitor data YouTube named on an earlier page, as
     // yt-dlp sends it, and that value is not cached.
     // When a later page fails, the result carries that failure and the
     // videos read so far.
@@ -267,8 +267,9 @@ public:
     // playlist instead of failing as Parse.
     // Asked as the web client whatever Options::clients says. Cached visitor
     // data is sent when there is some, but none is fetched for a playlist;
-    // with none cached, a later page carries the visitor data YouTube named
-    // on the page before it, as yt-dlp sends it, and that value is not cached.
+    // with none cached, a later page carries the latest visitor data YouTube
+    // named on an earlier page, as yt-dlp sends it, and that value is not
+    // cached.
     // When a later page fails, the result carries that failure and the
     // playlist as read so far: its title, its count and the entries before
     // the page that failed.
