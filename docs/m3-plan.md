@@ -229,6 +229,11 @@ first for an artist's name, and an empty search holds one
 4. Append results until `max`. While fewer than `max`, the page gave a
    continuation, the page added at least one result, and fewer than
    `MAX_SEARCH_PAGES` (10) were read: send the continuation and repeat.
+   Added on 2026-11-23, after the first build: a video whose id was handed
+   on already is skipped, a page that adds nothing new but repeats what was
+   handed on stops the search with a warning, and so does a continuation
+   token already sent, as the playlist loop does. A feed that goes round
+   would otherwise hand a bot the same videos up to ten times.
 5. A failure on the first page is that failure with an empty list. A failure
    on a later page is that failure with what was read so far.
 
@@ -294,8 +299,8 @@ groundwork is a refactor.
 ## Out of scope
 
 Playlists (M4). Search filters other than videos-only, sorting, music search.
-Fetching visitor data for a search. De-duplicating results across pages
-(yt-dlp does not either).
+Fetching visitor data for a search. (De-duplicating results was out of scope
+here, as yt-dlp does not; it was added on 2026-11-23, see "The loop".)
 
 ## Before this is done
 

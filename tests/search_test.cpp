@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <deque>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -114,6 +115,23 @@ std::string video(const std::string &videoId, const std::string &extra = {})
     return R"({"videoRenderer":{"videoId":")" + videoId
          + R"(","title":{"runs":[{"text":"T"}]},"ownerText":{"runs":[{"text":"A"}]},"lengthText":{"simpleText":"1:00"})"
          + extra + "}}";
+}
+
+// An 11-character video id made of n, for pages of distinct videos.
+std::string videoIdOf(int n)
+{
+    std::string digits = std::to_string(n);
+    return "v" + std::string(10 - digits.size(), '0') + digits;
+}
+
+// The videos numbered first to first + count - 1, from a comma.
+std::string videos(int first, int count)
+{
+    std::string items;
+    for (int n = first; n < first + count; ++n) {
+        items += (items.empty() ? "" : ",") + video(videoIdOf(n));
+    }
+    return items;
 }
 
 // page, an object, with a responseContext.visitorData of the JSON value given.
@@ -619,14 +637,62 @@ TEST_CASE("a search stops at a page that brought no videos, continuation or not"
 
 TEST_CASE("a search reads ten pages at most, whatever max asks for")
 {
+    // Fresh tokens and new videos on every page: only the cap stops it.
     TestResolver test;
-    for (int i = 0; i < 11; ++i) {
-        test.http->apiBodies["search"].push_back(readFixture("search_continuation.json"));
+    std::deque<std::string> &bodies = test.http->apiBodies["search"];
+    bodies.push_back(firstPage(section(videos(0, 20)) + "," + continuationItem("T1")));
+    for (int page = 2; page <= 11; ++page) {
+        bodies.push_back(furtherPage(section(videos(page * 100, 20)) + "," + continuationItem("T" + std::to_string(page))));
     }
     const auto found = test.resolver.search(artist(), 1000);
     REQUIRE(found);
     CHECK(test.http->requests.size() == 10);
-    CHECK(found.value.size() == 30);
+    CHECK(found.value.size() == 200);
+}
+
+TEST_CASE("a search whose continuation repeats stops there, with each video once")
+{
+    // Page two hands out its own token again, as a feed going round would.
+    TestResolver test;
+    test.http->apiBodies["search"] = {
+        firstPage(section(videos(0, 20)) + "," + continuationItem("SAME")),
+        furtherPage(section(videos(20, 20)) + "," + continuationItem("SAME")),
+        furtherPage(section(videos(40, 20)) + "," + continuationItem("SAME")), // never asked for
+    };
+    const auto found = test.resolver.search(artist(), 200);
+    REQUIRE(found);
+    CHECK(found.value.size() == 40);
+    CHECK(test.http->requests.size() == 2);
+    CHECK(test.logLine(ytres::LogLevel::Warning, "leads back to a page already read, after page 2") != nullptr);
+}
+
+TEST_CASE("a video YouTube hands out twice is handed on once, and a page of nothing new ends the search")
+{
+    // Every further page serves page one's videos again under a fresh token.
+    TestResolver test;
+    test.http->apiBodies["search"] = {
+        firstPage(section(videos(0, 20)) + "," + continuationItem("T1")),
+        furtherPage(section(videos(0, 20)) + "," + continuationItem("T2")),
+        furtherPage(section(videos(0, 20)) + "," + continuationItem("T3")), // never asked for
+    };
+    const auto found = test.resolver.search(artist(), 50);
+    REQUIRE(found);
+    CHECK(found.value.size() == 20);
+    CHECK(test.http->requests.size() == 2);
+    CHECK(test.logLine(ytres::LogLevel::Warning, "repeats on page 2 only videos it already read") != nullptr);
+
+    // Within a page, and across pages beside new videos: each once, in order.
+    TestResolver mixed;
+    mixed.http->apiBodies["search"] = {
+        firstPage(section(video("aaaaaaaaaaa") + "," + video("aaaaaaaaaaa") + "," + video("bbbbbbbbbbb")) + ","
+                  + continuationItem("T1")),
+        furtherPage(section(video("bbbbbbbbbbb") + "," + video("ccccccccccc"))),
+    };
+    const auto once = mixed.resolver.search(artist(), 50);
+    REQUIRE(once);
+    CHECK(idsOf(once.value) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"});
+    CHECK(mixed.http->requests.size() == 2);
+    CHECK_FALSE(mixed.logged(ytres::LogLevel::Warning));
 }
 
 TEST_CASE("a search YouTube finds nothing for is Ok and empty, after one request")

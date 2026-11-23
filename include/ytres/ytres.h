@@ -215,7 +215,10 @@ public:
     // Up to max videos for query, best match first; an empty list when
     // YouTube finds none. One request for the first twenty or so, one more
     // per further page. Channels, playlists and shelves in the results are
-    // skipped. max of 0, or a query that is empty or all spaces, is BadInput.
+    // skipped, and a video YouTube hands out twice is listed once. A page of
+    // nothing but videos already listed, or a continuation already followed,
+    // ends the search with a warning in the log: the feed is going round.
+    // max of 0, or a query that is empty or all spaces, is BadInput.
     // A first page where YouTube counts results but holds none the library
     // can read is Parse, not an empty list: YouTube has changed its answer,
     // and the caller should fall back rather than report nothing found.

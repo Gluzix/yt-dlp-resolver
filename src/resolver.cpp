@@ -348,7 +348,11 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     const Call call{std::string{}, request, deadline.value};
 
     std::vector<SearchResult> found;
+    // A bot queues what it gets: a video YouTube hands out twice, on one
+    // page or across two, is handed on once.
+    std::set<std::string> idsFound;
     innertube::Continuation next;
+    std::set<std::string> tokensSent;
     for (int pageNumber = 1;; ++pageNumber) {
         Result<innertube::SearchPage> page = askSearch(*web, text, visitorData, next, call);
         // A later page's failure keeps what the pages before it brought:
@@ -358,14 +362,33 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
         }
         std::vector<SearchResult> &results = page.value.results;
         log(LogLevel::Debug, "search page " + std::to_string(pageNumber) + ": " + std::to_string(results.size()) + " videos");
+        std::size_t added = 0;
         for (SearchResult &result : results) {
             if (found.size() >= max) {
                 break;
             }
+            if (!idsFound.insert(result.videoId).second) {
+                continue;
+            }
             found.push_back(std::move(result));
+            ++added;
         }
         // A page that brought no videos promises none on the next.
         if (found.size() >= max || page.value.next.token.empty() || results.empty() || pageNumber >= MAX_SEARCH_PAGES) {
+            break;
+        }
+        // A page of nothing but videos already handed on is a feed going
+        // round: the next would bring the same again.
+        if (added == 0) {
+            log(LogLevel::Warning, "The search repeats on page " + std::to_string(pageNumber)
+                                       + " only videos it already read; stopping there");
+            break;
+        }
+        // A token sent before would fetch a page read before, and the one
+        // after it, for ever.
+        if (!tokensSent.insert(page.value.next.token).second) {
+            log(LogLevel::Warning, "The search leads back to a page already read, after page "
+                                       + std::to_string(pageNumber) + "; stopping there");
             break;
         }
         next = std::move(page.value.next);
