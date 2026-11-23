@@ -360,7 +360,12 @@ POST https://www.youtube.com/youtubei/v1/browse?prettyPrint=false
 - Playlist ids, from yt-dlp's `_PLAYLIST_ID_RE`:
   `(?:(?:PL|LL|EC|UU|FL|RD|UL|TL|PU|OLAK5uy_)[0-9A-Za-z-_]{10,}|RDMM|WL|LL|LM)`.
   `RD...` are mixes generated per viewer, `WL`, `LL` and `LM` are a signed-in
-  viewer's own lists.
+  viewer's own lists. One `RD` family is no mix: `RDCLAK5uy_...` is a YouTube
+  Music curated playlist ("The Hit List", `RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs`),
+  the same for every viewer. On 2026-11-23 browse `VLRDCLAK5uy_...` answered
+  it as the web client like any playlist, in the lockup layout: 52 entries on
+  one page, no continuation, the same ids in the same order as
+  `yt-dlp --flat-playlist`.
 - **The layout changed.** yt-dlp still reads the old one,
   `playlistVideoListRenderer.contents[]` of `playlistVideoRenderer` with a
   `continuationItemRenderer` at the end, but both playlists probed (an

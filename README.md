@@ -97,7 +97,8 @@ playlist in its order, with its title and the count YouTube gives for it
 text ("447 episodes"), so with an `Options::language` other than `"en"` it
 may be wrong or 0. It takes a `youtube.com` `/playlist` or
 `/watch` link, or a `youtu.be` link, that carries `list=`, or a bare id
-starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL` or `PU`. Like a search it
+starting `PL`, `UU`, `FL`, `OLAK5uy_`, `EC`, `UL`, `PU` or `RDCLAK5uy_` (YouTube
+Music's curated playlists). Like a search it
 asks as the `web` client, sends the visitor data a resolve has cached and
 fetches none of its own. YouTube sends a hundred videos a page, and the
 library asks for no more pages than `max` needs: the first 50 videos of a
@@ -108,7 +109,7 @@ after three pages in a row that bring no video. YouTube hides unavailable
 videos itself, and the library drops any it lists anyway
 (`[Private video]`, `[Deleted video]`, no title), so `entries` may hold
 fewer than `totalCount`. A playlist that does not exist is `Unavailable`, with
-YouTube's words; a mix (`RD...`), Watch Later, Liked videos and the other
+YouTube's words; a mix (any other `RD...`), Watch Later, Liked videos and the other
 lists made for one signed-in viewer are `BadInput`, as is `max` of 0. As for
 search, a first page that counts videos but holds none the library can read
 is `Parse`, not an empty playlist, and a later page's failure comes back
@@ -209,6 +210,7 @@ scrubbed of the requesting address (203.0.113.7) and visitor data
 | `playlist_long_first.json` | the first page of a 447-video playlist: three videos and the continuation among them |
 | `playlist_long_continuation.json` | its second page: three videos and the next continuation |
 | `playlist_missing.json` | a playlist that does not exist |
+| `playlist_music_curated.json` | a YouTube Music curated playlist (`RDCLAK5uy_...`, 52 videos, recorded 2026-11-23): its first three |
 
 The search and playlist pages are cut down to a few entries each. The old
 playlist layout (`playlistVideoRenderer`) could not be recorded any more, so

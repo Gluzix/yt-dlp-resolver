@@ -72,6 +72,13 @@ class Resolver
 Result<std::string> parsePlaylistId(std::string_view urlOrId);
 ```
 
+Changed on 2026-11-23, after the first build: `RDCLAK5uy_` followed by ten
+or more id characters is public too. It is YouTube Music's curated playlists
+("The Hit List"), which users share from music.youtube.com; they start like a
+mix but are the same for every viewer, and browse `VL<id>` lists them as the
+web client like any other playlist (52 of 52, the same order as yt-dlp). The
+public prefixes are checked first, so every other `RD...` stays a mix.
+
 The prefixes come from yt-dlp's `_PLAYLIST_ID_RE`. Reuse the host and scheme
 handling `parseVideoId()` already has, and `queryValue()` for `list=`.
 
@@ -239,6 +246,7 @@ Real responses from 2026-10-01, scrubbed and trimmed, already in
 | `playlist_long_first.json` | `PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4`, 447 videos, first page cut to 3 entries and its continuation | title `Lex Fridman Podcast`, count 447, entries `s7d2d8FhevU` (13016 s), `NYFGCESmikA` (18951 s), `l6USUAIKJls` (11578 s); the continuation token starts `4qmFsgKBARIk` (the one to follow), not `4qmFsgJbEiRW` (the section-level one) |
 | `playlist_long_continuation.json` | its second page cut to 3 entries and the next continuation | `2yHr9DPnSzk` (5942 s), `r4wLXNydzeY` (12402 s), `JN3KPFbWCy8` (8207 s); a token starting `4qmFsgJ_EiRW`; no title, count 0 |
 | `playlist_missing.json` | a playlist that does not exist | `Unavailable`, "The playlist does not exist." |
+| `playlist_music_curated.json` | added 2026-11-23: `RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs`, YouTube Music's "The Hit List", 52 videos on one page, cut to 3 | title `The Hit List`, count 52, `78wrful9cVU` (251 s), `mw3kSNIxjqo` (313 s), `nUsrYVxrDwI` (422 s); no continuation |
 
 The old layout cannot be recorded any more, so its test writes a small JSON
 by hand from the table above (a `playlistVideoListRenderer` with two

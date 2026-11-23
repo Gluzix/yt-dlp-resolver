@@ -21,9 +21,9 @@ Result<std::string> parseVideoId(std::string_view urlOrId);
 // The playlist a link names: the list= of a /playlist or /watch link on
 // youtube.com or any of its subdomains, of a youtu.be link, or a bare id.
 // The scheme may be https, http or left out, as for parseVideoId().
-// Only playlists anyone can open: ids starting PL, UU, FL, OLAK5uy_, EC, UL
-// or PU followed by ten or more of [A-Za-z0-9_-]. A mix (RD...), WL, LL, LM
-// and TL... are BadInput with a message that says they need a signed-in
+// Only playlists anyone can open: ids starting PL, UU, FL, OLAK5uy_, EC, UL,
+// PU or RDCLAK5uy_ (YouTube Music's curated lists) followed by ten or more
+// of [A-Za-z0-9_-]. A mix (any other RD...), WL, LL, LM and TL... are BadInput with a message that says they need a signed-in
 // viewer; anything else is BadInput.
 Result<std::string> parsePlaylistId(std::string_view urlOrId);
 

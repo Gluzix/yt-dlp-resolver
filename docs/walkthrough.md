@@ -325,7 +325,8 @@ the moved-from check, `callDeadline()`), then `max == 0` is `BadInput`,
 then `parsePlaylistId()`: the `list=` of a `/playlist` or `/watch` link, or
 of a `youtu.be` link, or a bare id. Only the public kinds of yt-dlp's
 `_PLAYLIST_ID_RE` pass — `PL`, `UU` (a channel's uploads), `OLAK5uy_` (an
-album) and their kin. A mix (`RD...`), Watch Later (`WL`) or Liked videos
+album) and their kin, plus `RDCLAK5uy_` (YouTube Music's curated lists,
+public despite their `RD`). A mix (any other `RD...`), Watch Later (`WL`) or Liked videos
 (`LL`) is `BadInput` with a message that says it needs a signed-in viewer:
 YouTube makes those lists for one person, and nothing the library could
 fetch would be the user's list. The scheme and host checks are the ones

@@ -246,7 +246,8 @@ public:
     // times in a row.
     // A playlist that does not exist is Unavailable, with YouTube's words,
     // as is any whose answer is an error alert instead of a playlist. A mix
-    // (RD...), Watch Later, Liked videos and the like are BadInput: they
+    // (RD..., but for YouTube Music's curated RDCLAK5uy_ lists, which are
+    // public), Watch Later, Liked videos and the like are BadInput: they
     // belong to a signed-in viewer. max of 0 is BadInput. A first page where
     // YouTube counts videos but holds none the library can read is Parse,
     // not an empty playlist: YouTube has changed its answer, and the caller

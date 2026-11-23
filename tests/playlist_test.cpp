@@ -204,7 +204,7 @@ TEST_CASE("every playlist link form gives the playlist id")
 
 TEST_CASE("every public kind of playlist id is accepted, with ten or more characters after its prefix")
 {
-    for (const char *prefix : {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU"}) {
+    for (const char *prefix : {"PL", "UU", "FL", "OLAK5uy_", "EC", "UL", "PU", "RDCLAK5uy_"}) {
         const std::string id = std::string(prefix) + "0123456789";
         CAPTURE(id);
         const auto result = parsePlaylistId(id);
@@ -214,12 +214,26 @@ TEST_CASE("every public kind of playlist id is accepted, with ten or more charac
     }
 }
 
+TEST_CASE("YouTube Music's curated playlists are public, though they start like a mix")
+{
+    const std::string id = "RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs";
+    for (const std::string &input : {id, "https://music.youtube.com/playlist?list=" + id,
+                                     "https://www.youtube.com/playlist?list=" + id}) {
+        CAPTURE(input);
+        const auto result = parsePlaylistId(input);
+        REQUIRE(result);
+        CHECK(result.value == id);
+    }
+}
+
 TEST_CASE("a mix, Watch Later, Liked videos and the other lists made for one viewer are BadInput, and say so")
 {
     const char *const personal[] = {
         "RDdQw4w9WgXcQ",
         "RDMM",
         "RDMMdQw4w9WgXcQ",
+        "RDAMVMdQw4w9WgXcQ",
+        "RDCLAK5uy_012345678", // nine characters after the curated prefix: no such list, so a mix
         "WL",
         "LL",
         "LM",
@@ -347,6 +361,31 @@ TEST_CASE("the recorded small playlist: its title, its count, seven videos and n
     // section, which loads something else: there is no next page.
     CHECK(page.value.next.token.empty());
     CHECK(page.value.visitorData == "FIXTURE");
+}
+
+TEST_CASE("the recorded YouTube Music curated playlist reads like any other")
+{
+    // RDCLAK5uy_..., recorded on 2026-11-23 and cut to its first three entries.
+    const std::string id = "RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs";
+    const auto page = parsePlaylistResponse(readFixture("playlist_music_curated.json"), id);
+    REQUIRE(page);
+    CHECK(page.value.title == "The Hit List");
+    CHECK(page.value.totalCount == 52);
+    CHECK(idsOf(page.value.entries) == std::vector<std::string>{"78wrful9cVU", "mw3kSNIxjqo", "nUsrYVxrDwI"});
+    CHECK(durationsOf(page.value.entries) == std::vector<std::int64_t>{251, 313, 422});
+    REQUIRE_FALSE(page.value.entries.empty());
+    CHECK(page.value.entries[0].title == "Olivia Rodrigo - drop dead (Official Music Video)");
+    CHECK(page.value.next.token.empty()); // 52 videos fit one page
+
+    // Through the Resolver, from the link a user shares.
+    TestResolver test;
+    test.http->apiBodies["browse"] = {readFixture("playlist_music_curated.json")};
+    const auto list = test.resolver.playlist("https://music.youtube.com/playlist?list=" + id, 50);
+    REQUIRE(list);
+    CHECK(list.value.playlistId == id);
+    CHECK(list.value.entries.size() == 3);
+    REQUIRE(test.http->requests.size() == 1);
+    CHECK(json::parse(test.http->requests[0].body)["browseId"] == "VL" + id);
 }
 
 TEST_CASE("the recorded first page of a long playlist: the continuation among the entries, not the one beside them")
