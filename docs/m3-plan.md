@@ -195,6 +195,13 @@ The items live in one of two places:
 - continuation: `onResponseReceivedCommands[].appendContinuationItemsAction.continuationItems[]`
   (take the first command that has one)
 
+Changed on 2026-11-23, after the first build: the reader looked for the
+continuation container first and took it on any page, so a first page that
+also carried one would have lost its own videos and its `Parse` alarm.
+`parseSearchResponse(body, kind)` now takes a `SearchPageKind` (`First` or
+`Further`) from the Resolver, which knows what it sent, and reads only the
+container that answer should have; without it the page is `Parse`.
+
 Each element of that array is either an `itemSectionRenderer`, whose
 `contents[]` hold the results, or the page's continuation
 (`continuationItemRenderer`, read with `continuationOf()`). So for search the

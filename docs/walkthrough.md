@@ -260,7 +260,9 @@ bytes did not move.
 
 **Step 3 — the answer.** `parseSearchResponse()` finds one array: the
 first page's `sectionListRenderer.contents[]`, or a further page's
-`appendContinuationItemsAction.continuationItems[]`. In it sit item
+`appendContinuationItemsAction.continuationItems[]`, whichever the request
+asked for (the Resolver passes `SearchPageKind::First` or `Further`), so an
+answer that carried both could not hide the first page's videos. In it sit item
 sections, which hold the results, and *beside* them the continuation, whose
 token fetches the next page (`continuationOf()` reads it; it knows the
 three shapes YouTube uses, so playlists reuse it in section 5). Like yt-dlp,

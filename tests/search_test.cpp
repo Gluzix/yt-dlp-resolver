@@ -24,6 +24,7 @@ using ytres::Error;
 using ytres::innertube::Continuation;
 using ytres::innertube::continuationOf;
 using ytres::innertube::parseSearchResponse;
+using ytres::innertube::SearchPageKind;
 using ytres::innertube::searchRequest;
 using ytres::jsonread::durationSeconds;
 using ytres::jsonread::textOf;
@@ -309,7 +310,7 @@ TEST_CASE("textOf reads a label written any of InnerTube's three ways")
 
 TEST_CASE("the recorded first page: the channel read past, four videos, the continuation")
 {
-    const auto page = parseSearchResponse(readFixture("search_videos.json"));
+    const auto page = parseSearchResponse(readFixture("search_videos.json"), SearchPageKind::First);
     REQUIRE(page);
     const std::vector<ytres::SearchResult> &results = page.value.results;
     REQUIRE(results.size() == 4);
@@ -338,7 +339,7 @@ TEST_CASE("the recorded first page: the channel read past, four videos, the cont
 
 TEST_CASE("the recorded second page: three videos and the next continuation")
 {
-    const auto page = parseSearchResponse(readFixture("search_continuation.json"));
+    const auto page = parseSearchResponse(readFixture("search_continuation.json"), SearchPageKind::Further);
     REQUIRE(page);
     const std::vector<ytres::SearchResult> &results = page.value.results;
     CHECK(idsOf(results) == std::vector<std::string>{"g4UDeQTjMYk", "5rNXe7Z1qN0", "c9B4Z_HRAcI"});
@@ -355,7 +356,7 @@ TEST_CASE("the recorded second page: three videos and the next continuation")
 
 TEST_CASE("the recorded empty search: Ok, no videos, no continuation")
 {
-    const auto page = parseSearchResponse(readFixture("search_empty.json"));
+    const auto page = parseSearchResponse(readFixture("search_empty.json"), SearchPageKind::First);
     REQUIRE(page);
     CHECK(page.value.results.empty());
     CHECK(page.value.next.token.empty());
@@ -363,7 +364,7 @@ TEST_CASE("the recorded empty search: Ok, no videos, no continuation")
 
 TEST_CASE("the recorded live streams: live, no length, the channel's name")
 {
-    const auto page = parseSearchResponse(readFixture("search_live.json"));
+    const auto page = parseSearchResponse(readFixture("search_live.json"), SearchPageKind::First);
     REQUIRE(page);
     const std::vector<ytres::SearchResult> &results = page.value.results;
     CHECK(idsOf(results) == std::vector<std::string>{"rFZHOHl-L8A", "JD-kMIpDfnY", "E2vONfzoyRI"});
@@ -389,7 +390,7 @@ TEST_CASE("a result is live by its badge or its overlay, upcoming by its event d
         + "," + R"({"videoRenderer":{"videoId":"ddddddddddd","title":{"simpleText":"Simple"},)"
                 R"("longBylineText":{"runs":[{"text":"Long"}]},"shortBylineText":{"runs":[{"text":"Short"}]}}})"
         + "," + R"({"videoRenderer":{"videoId":"eeeeeeeeeee","shortBylineText":{"runs":[{"text":"Sh"},{"text":"ort"}]}}})";
-    const auto page = parseSearchResponse(firstPage(section(items)));
+    const auto page = parseSearchResponse(firstPage(section(items)), SearchPageKind::First);
     REQUIRE(page);
     const std::vector<ytres::SearchResult> &results = page.value.results;
     REQUIRE(results.size() == 5);
@@ -418,7 +419,7 @@ TEST_CASE("without lengthText, the length comes from the time status over the th
         R"({"videoRenderer":{"videoId":"bbbbbbbbbbb","thumbnailOverlays":)"
         R"([{"thumbnailOverlayTimeStatusRenderer":{"text":{"runs":[{"text":"LIVE"}]},"style":"LIVE"}}]}},)"
         + video("ccccccccccc", R"(,"thumbnailOverlays":[{"thumbnailOverlayTimeStatusRenderer":{"text":{"simpleText":"9:00"}}}])");
-    const auto page = parseSearchResponse(firstPage(section(items)));
+    const auto page = parseSearchResponse(firstPage(section(items)), SearchPageKind::First);
     REQUIRE(page);
     const std::vector<ytres::SearchResult> &results = page.value.results;
     REQUIRE(results.size() == 3);
@@ -437,7 +438,7 @@ TEST_CASE("whatever is not a video with a valid id is read past, in any section,
         + R"({"videoRenderer":{"videoId":"bbbbbbbbbbb","title":"a bare string","ownerText":7}})";
     const std::string items = section(firstSection) + R"(,"x",null,{"richShelfRenderer":{}},)" + section(video("ccccccccccc"))
                             + "," + continuationItem("FIRST") + "," + continuationItem("SECOND");
-    const auto page = parseSearchResponse(firstPage(items));
+    const auto page = parseSearchResponse(firstPage(items), SearchPageKind::First);
     REQUIRE(page);
     CHECK(idsOf(page.value.results) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"});
     REQUIRE(page.value.results.size() == 3);
@@ -456,7 +457,8 @@ TEST_CASE("a corrected query's card ahead of the videos is read past, and the vi
         R"("searchInsteadFor":{"runs":[{"text":"Search instead for"}]},"originalQuery":{"simpleText":"rick astly"}}})";
     const auto page = parseSearchResponse(
         firstPage(section(corrected + "," + video("aaaaaaaaaaa") + "," + video("bbbbbbbbbbb")) + "," + continuationItem("NEXT"),
-                  "1234"));
+                  "1234"),
+        SearchPageKind::First);
     REQUIRE(page);
     CHECK(idsOf(page.value.results) == std::vector<std::string>{"aaaaaaaaaaa", "bbbbbbbbbbb"});
     CHECK(page.value.next.token == "NEXT");
@@ -467,20 +469,21 @@ TEST_CASE("a first page that counts results but holds no video the library can r
     // A search as it would look had YouTube moved its results into a view
     // model the reader does not know, as it has for playlists.
     const std::string unknownItem = R"({"lockupViewModel":{}})";
-    const auto moved = parseSearchResponse(firstPage(section(unknownItem), "12"));
+    const auto moved = parseSearchResponse(firstPage(section(unknownItem), "12"), SearchPageKind::First);
     CHECK(moved.status.code == Error::Parse);
     CHECK(moved.status.message == "The search response counts results but holds no video the library can read");
     CHECK(moved.value.results.empty());
 
     // Nothing counted and nothing there is an empty search, as recorded.
-    CHECK(parseSearchResponse(firstPage(section(unknownItem), "0")));
-    CHECK(parseSearchResponse(firstPage(section(unknownItem))));
-    CHECK(parseSearchResponse(readFixture("search_empty.json")));
+    CHECK(parseSearchResponse(firstPage(section(unknownItem), "0"), SearchPageKind::First));
+    CHECK(parseSearchResponse(firstPage(section(unknownItem)), SearchPageKind::First));
+    CHECK(parseSearchResponse(readFixture("search_empty.json"), SearchPageKind::First));
 
     // A further page with nothing readable is the end of the results, count or not.
     const auto further = parseSearchResponse(
         R"({"estimatedResults":"12","onResponseReceivedCommands":[{"appendContinuationItemsAction":)"
-        R"({"continuationItems":[{"itemSectionRenderer":{"contents":[{"lockupViewModel":{}}]}}]}}]})");
+        R"({"continuationItems":[{"itemSectionRenderer":{"contents":[{"lockupViewModel":{}}]}}]}}]})",
+        SearchPageKind::Further);
     REQUIRE(further);
     CHECK(further.value.results.empty());
 
@@ -493,28 +496,67 @@ TEST_CASE("a first page that counts results but holds no video the library can r
 TEST_CASE("a continuation inside an item section serves when none sits beside the sections, as yt-dlp reads it")
 {
     const std::string inner = section(video("aaaaaaaaaaa") + "," + continuationItem("INNER") + "," + continuationItem("LATER"));
-    const auto alone = parseSearchResponse(firstPage(inner));
+    const auto alone = parseSearchResponse(firstPage(inner), SearchPageKind::First);
     REQUIRE(alone);
     CHECK(idsOf(alone.value.results) == std::vector<std::string>{"aaaaaaaaaaa"});
     CHECK(alone.value.next.token == "INNER");
 
     // The one beside the sections comes first, wherever it stands.
-    const auto both = parseSearchResponse(furtherPage(inner + "," + continuationItem("BESIDE")));
+    const auto both = parseSearchResponse(furtherPage(inner + "," + continuationItem("BESIDE")), SearchPageKind::Further);
     REQUIRE(both);
     CHECK(both.value.next.token == "BESIDE");
 }
 
+TEST_CASE("a page is read from the container its request expects, even when it carries both")
+{
+    // A first page with an append action beside its section list: a shape
+    // no capture has shown, read as the first page it was asked for.
+    const std::string appended =
+        R"("onResponseReceivedCommands":[{"appendContinuationItemsAction":{"continuationItems":[)" + section(video("bbbbbbbbbbb"))
+        + "]}}],";
+    const std::string bothFirst = "{" + appended + firstPage(section(video("aaaaaaaaaaa")) + "," + continuationItem("SIB")).substr(1);
+    const auto first = parseSearchResponse(bothFirst, SearchPageKind::First);
+    REQUIRE(first);
+    CHECK(idsOf(first.value.results) == std::vector<std::string>{"aaaaaaaaaaa"});
+    CHECK(first.value.next.token == "SIB");
+    // The same answer to a continuation is read from its append action.
+    const auto further = parseSearchResponse(bothFirst, SearchPageKind::Further);
+    REQUIRE(further);
+    CHECK(idsOf(further.value.results) == std::vector<std::string>{"bbbbbbbbbbb"});
+
+    // And with an empty append action beside it, the first page keeps its
+    // videos, and its alarm: a count with nothing readable is still Parse.
+    const std::string emptyAppend = R"({"onResponseReceivedCommands":[{"appendContinuationItemsAction":{"continuationItems":[]}}],)";
+    const auto kept = parseSearchResponse(emptyAppend + firstPage(section(video("aaaaaaaaaaa"))).substr(1), SearchPageKind::First);
+    REQUIRE(kept);
+    CHECK(idsOf(kept.value.results) == std::vector<std::string>{"aaaaaaaaaaa"});
+    const auto alarmed =
+        parseSearchResponse(emptyAppend + firstPage(section(R"({"lockupViewModel":{}})"), "12").substr(1), SearchPageKind::First);
+    CHECK(alarmed.status.code == Error::Parse);
+
+    // A page without the container its request expects is Parse.
+    CHECK(parseSearchResponse(firstPage(section(video("aaaaaaaaaaa"))), SearchPageKind::Further).status.code == Error::Parse);
+    CHECK(parseSearchResponse(furtherPage(section(video("aaaaaaaaaaa"))), SearchPageKind::First).status.code == Error::Parse);
+
+    // Through the Resolver: page one's own videos, then page two's.
+    TestResolver test;
+    test.http->apiBodies["search"] = {bothFirst, furtherPage(section(video("ccccccccccc")))};
+    const auto found = test.resolver.search(artist(), 10);
+    REQUIRE(found);
+    CHECK(idsOf(found.value) == std::vector<std::string>{"aaaaaaaaaaa", "ccccccccccc"});
+}
+
 TEST_CASE("a search page names the visitor YouTube took the caller for, when it may go out as a header")
 {
-    const auto recorded = parseSearchResponse(readFixture("search_videos.json"));
+    const auto recorded = parseSearchResponse(readFixture("search_videos.json"), SearchPageKind::First);
     REQUIRE(recorded);
     CHECK(recorded.value.visitorData == "FIXTURE");
 
     const std::string page = firstPage(section(video("aaaaaaaaaaa")));
-    const auto without = parseSearchResponse(page);
+    const auto without = parseSearchResponse(page, SearchPageKind::First);
     REQUIRE(without);
     CHECK(without.value.visitorData.empty());
-    const auto fit = parseSearchResponse(withVisitorData(R"("CgtGSVhUVVJF%3D%3D")", page));
+    const auto fit = parseSearchResponse(withVisitorData(R"("CgtGSVhUVVJF%3D%3D")", page), SearchPageKind::First);
     REQUIRE(fit);
     CHECK(fit.value.visitorData == "CgtGSVhUVVJF%3D%3D");
 
@@ -523,7 +565,7 @@ TEST_CASE("a search page names the visitor YouTube took the caller for, when it 
                                    "\"" + std::string(4097, 'A') + "\""};
     for (const std::string &value : refused) {
         CAPTURE(value);
-        const auto parsed = parseSearchResponse(withVisitorData(value, page));
+        const auto parsed = parseSearchResponse(withVisitorData(value, page), SearchPageKind::First);
         REQUIRE(parsed);
         CHECK(parsed.value.visitorData.empty());
         CHECK(parsed.value.results.size() == 1);
@@ -577,9 +619,11 @@ TEST_CASE("an answer that is no search response is a Parse failure")
     for (const char *body : bodies) {
         const std::string text = body;
         CAPTURE(text);
-        const auto page = parseSearchResponse(body);
-        CHECK(page.status.code == Error::Parse);
-        CHECK(page.value.results.empty());
+        for (const SearchPageKind kind : {SearchPageKind::First, SearchPageKind::Further}) {
+            const auto page = parseSearchResponse(body, kind);
+            CHECK(page.status.code == Error::Parse);
+            CHECK(page.value.results.empty());
+        }
     }
 }
 
@@ -615,7 +659,7 @@ TEST_CASE("a search past the first page sends its continuation, and stops once i
           == std::vector<std::string>{"MxWXAIWsppY", "oCZugu1ea18", "2DiP0mMeaT8", "jyXHU7PtsmI", "g4UDeQTjMYk", "5rNXe7Z1qN0"});
     REQUIRE(test.http->requests.size() == 2);
 
-    const auto first = parseSearchResponse(readFixture("search_videos.json"));
+    const auto first = parseSearchResponse(readFixture("search_videos.json"), SearchPageKind::First);
     REQUIRE(first);
     const ytres::HttpRequest &second = test.http->requests[1];
     CHECK(second.url == SEARCH_URL);

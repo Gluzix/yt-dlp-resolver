@@ -27,22 +27,25 @@ using jsonread::textOf;
 // protobuf filter. The older EgIQAQ== that circulates is not what it sends.
 const char *const VIDEOS_ONLY = "EgIQAfABAQ==";
 
-// The array that holds a page's item sections and its continuation: on a
-// further page, the first appendContinuationItemsAction among
-// onResponseReceivedCommands, looked for first since only a continuation
-// answer has one; on a first page, the section list. Null when the answer
-// has neither. firstPage says which it found.
-const json *pageItems(const json &root, bool &firstPage)
+// The array that holds a page's item sections and its continuation, in the
+// container the request expects: on a further page, the first
+// appendContinuationItemsAction among onResponseReceivedCommands; on a first
+// page, the section list. Null when the answer lacks it. Which request was
+// sent decides, not which container is there: a first page that also
+// carried an append action would otherwise lose its own videos.
+const json *pageItems(const json &root, SearchPageKind kind)
 {
-    firstPage = false;
-    if (const json *commands = childArray(root, "onResponseReceivedCommands")) {
-        for (const json &command : *commands) {
-            const json *action = child(command, "appendContinuationItemsAction");
-            const json *items = action ? childArray(*action, "continuationItems") : nullptr;
-            if (items) {
-                return items;
+    if (kind == SearchPageKind::Further) {
+        if (const json *commands = childArray(root, "onResponseReceivedCommands")) {
+            for (const json &command : *commands) {
+                const json *action = child(command, "appendContinuationItemsAction");
+                const json *items = action ? childArray(*action, "continuationItems") : nullptr;
+                if (items) {
+                    return items;
+                }
             }
         }
+        return nullptr;
     }
     const json *at = &root;
     for (const char *key : {"contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer"}) {
@@ -51,9 +54,7 @@ const json *pageItems(const json &root, bool &firstPage)
             return nullptr;
         }
     }
-    const json *sectionList = childArray(*at, "contents");
-    firstPage = sectionList != nullptr;
-    return sectionList;
+    return childArray(*at, "contents");
 }
 
 // Streaming now, by either of the marks yt-dlp reads: the LIVE badge, or a
@@ -140,10 +141,9 @@ void appendVideos(const json &section, std::vector<SearchResult> &results, Conti
     }
 }
 
-Result<SearchPage> readSearchResponse(const json &root)
+Result<SearchPage> readSearchResponse(const json &root, SearchPageKind kind)
 {
-    bool firstPage = false;
-    const json *items = pageItems(root, firstPage);
+    const json *items = pageItems(root, kind);
     if (!items) {
         return {{Error::Parse, "The search response holds no results section"}, {}};
     }
@@ -173,7 +173,7 @@ Result<SearchPage> readSearchResponse(const json &root)
     // results have moved into a renderer it does not know. Saying "nothing
     // found" would keep every caller from falling back to another resolver.
     // Only a first page says so; a further page with nothing in it is the end.
-    if (firstPage && page.results.empty() && readInt(root, "estimatedResults") > 0) {
+    if (kind == SearchPageKind::First && page.results.empty() && readInt(root, "estimatedResults") > 0) {
         return {{Error::Parse, "The search response counts results but holds no video the library can read"}, {}};
     }
     return {{}, std::move(page)};
@@ -195,7 +195,7 @@ HttpRequest searchRequest(const ClientDef &client, const std::string &query, con
     return apiRequest(client, "search", language, visitorData, fields);
 }
 
-Result<SearchPage> parseSearchResponse(const std::string &body)
+Result<SearchPage> parseSearchResponse(const std::string &body, SearchPageKind kind)
 {
     const json root = json::parse(body, nullptr, false);
     if (root.is_discarded() || !root.is_object()) {
@@ -203,7 +203,7 @@ Result<SearchPage> parseSearchResponse(const std::string &body)
     }
     // The reads check types as they go; this is the net under them.
     try {
-        return readSearchResponse(root);
+        return readSearchResponse(root, kind);
     } catch (const json::exception &e) {
         return {{Error::Parse, std::string("The search response has an unexpected shape: ") + e.what()}, {}};
     }

@@ -580,7 +580,10 @@ Result<innertube::SearchPage> Resolver::Impl::askSearch(const innertube::ClientD
     if (response.value.status < 200 || response.value.status >= 300) {
         return {{Error::Http, "YouTube answered HTTP " + std::to_string(response.value.status)}, {}};
     }
-    return innertube::parseSearchResponse(response.value.body);
+    // The request decides which container its answer is read from.
+    return innertube::parseSearchResponse(response.value.body, continuation.token.empty()
+                                                                   ? innertube::SearchPageKind::First
+                                                                   : innertube::SearchPageKind::Further);
 }
 
 // One page of a playlist: the first when continuation has no token, else the

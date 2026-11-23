@@ -39,6 +39,10 @@ namespace ytres::innertube {
 HttpRequest searchRequest(const ClientDef &client, const std::string &query, const std::string &language,
                           const std::string &visitorData, const Continuation &continuation = {});
 
+// Which answer a body is: the first page's, to a request with no
+// continuation, or a further page's, to one with a token.
+enum class SearchPageKind { First, Further };
+
 struct SearchPage
 {
     std::vector<SearchResult> results;  // in YouTube's order, best match first
@@ -49,16 +53,18 @@ struct SearchPage
     std::string visitorData;
 };
 
-// Reads one answer of /youtubei/v1/search, a first page or a continuation:
-// the item sections of
+// Reads one answer of /youtubei/v1/search, a first page or a continuation,
+// as kind says the request was: the item sections of
 //   contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[]
 // on a first page, of
 //   onResponseReceivedCommands[].appendContinuationItemsAction.continuationItems[]
 // on a further one, and the continuation beside them - or, when none is
 // there, the first one inside an item section's contents[], where yt-dlp
-// looks too. Pure. Not JSON, JSON with neither container, or a first page
-// whose estimatedResults is above 0 but which holds no readable video, is
-// Parse; any other page with no videos in it is not.
-Result<SearchPage> parseSearchResponse(const std::string &body);
+// looks too. Only the container kind expects is read: an answer that holds
+// both is read as what was asked for. Pure. Not JSON, JSON without the
+// container kind expects, or a first page whose estimatedResults is above 0
+// but which holds no readable video, is Parse; any other page with no
+// videos in it is not.
+Result<SearchPage> parseSearchResponse(const std::string &body, SearchPageKind kind);
 
 }
