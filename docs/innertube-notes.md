@@ -128,6 +128,12 @@ PO Token.
   `AGE_CHECK_REQUIRED` and `AGE_VERIFICATION_REQUIRED`; anything else
   (`ERROR`, `UNPLAYABLE`, `LOGIN_REQUIRED`, `CONTENT_CHECK_REQUIRED`, ...) is
   a failure. `playabilityStatus.reason` is the human-readable message.
+- `playabilityStatus.messages[]`, strings, can carry what the reason leaves
+  out. On 2026-11-23 `visionos` answered a private video (`U5fGeKfg9W8`) with
+  `LOGIN_REQUIRED`, reason "Please sign in", no subreason, no `videoDetails`,
+  and messages `["This is a private video. Please sign in to verify that you
+  may see it."]`; `web` gave the reason "Private video". The library reads
+  messages[] when it tells failures apart, so both are `Unavailable`.
 - Sanity check yt-dlp does and so must we: `videoDetails.videoId` must equal
   the requested id. YouTube occasionally answers with a different video.
 - `videoDetails`: `videoId`, `title`, `author`, `channelId`, `lengthSeconds`

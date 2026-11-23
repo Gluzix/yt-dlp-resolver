@@ -125,6 +125,27 @@ TEST_CASE("playability failures map to specific errors")
     }
 }
 
+TEST_CASE("a private video visionos files under messages[] is Unavailable, not a sign-in wall")
+{
+    // What visionos answered for a private video on 2026-11-23.
+    const std::string visionos =
+        R"({"status":"LOGIN_REQUIRED","reason":"Please sign in",)"
+        R"("messages":["This is a private video. Please sign in to verify that you may see it."]})";
+    const auto result = parsePlayerResponse(playerResponse(visionos, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(result.status.code == Error::Unavailable);
+    CHECK(result.status.message == "Private video");
+
+    // Messages that are not strings are read past, and the bot check still
+    // reads as one with messages beside it.
+    const std::string botCheck = R"({"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you're not a bot",)"
+                                 R"("messages":[7,null,{"x":1},"Sign in to continue"]})";
+    CHECK(parsePlayerResponse(playerResponse(botCheck, "{}"), "dQw4w9WgXcQ", 0).status.code == Error::BotCheck);
+    const std::string wall = R"({"status":"LOGIN_REQUIRED","reason":"Please sign in","messages":"not an array"})";
+    const auto signIn = parsePlayerResponse(playerResponse(wall, "{}"), "dQw4w9WgXcQ", 0);
+    CHECK(signIn.status.code == Error::LoginRequired);
+    CHECK(signIn.status.message == "Please sign in");
+}
+
 TEST_CASE("a region block spelled out only in errorScreen's subreason is GeoBlocked")
 {
     const std::string runs = R"({"status":"UNPLAYABLE","reason":"Video unavailable","errorScreen":{"playerErrorMessageRenderer":)"

@@ -206,6 +206,22 @@ std::string subreasonOf(const json &playability)
     return text;
 }
 
+// The lines of playabilityStatus.messages[], joined with spaces. visionos
+// answers a private video with the reason "Please sign in" and files "This
+// is a private video" here, where the web client puts it in the reason.
+std::string messagesOf(const json &playability)
+{
+    std::string text;
+    if (const json *messages = childArray(playability, "messages")) {
+        for (const json &message : *messages) {
+            if (message.is_string()) {
+                text += (text.empty() ? "" : " ") + message.get<std::string>();
+            }
+        }
+    }
+    return text;
+}
+
 // Whether the error screen's button reloads the page: YouTube's answer to a
 // client it will not serve as asked, the web client without a PO Token for
 // one. The signal reads the same in every language.
@@ -223,13 +239,15 @@ bool asksForReload(const json &playability)
 }
 
 Status playabilityFailure(const std::string &status, const std::string &reason, const std::string &subreason,
-                          bool reloadAsked)
+                          const std::string &messages, bool reloadAsked)
 {
     std::string message = reason.empty() ? "YouTube says " + status : reason;
     if (!subreason.empty()) {
         message += (message.back() == '.' ? " " : ". ") + subreason; // joined as yt-dlp joins them
     }
-    const std::string text = reason + " " + subreason;
+    // messages[] tells failures apart but stays out of the message: what it
+    // adds is the case the checks below name.
+    const std::string text = reason + " " + subreason + " " + messages;
     // Age gates and private videos arrive as LOGIN_REQUIRED too, so the reason
     // decides first.
     if (mentionsAny(text, {"confirm your age", "age-restricted", "age restricted", "inappropriate"})) {
@@ -239,7 +257,9 @@ Status playabilityFailure(const std::string &status, const std::string &reason, 
         return {Error::GeoBlocked, message};
     }
     if (mentionsAny(text, {"private video", "video is private"})) {
-        return {Error::Unavailable, message};
+        // Not "Please sign in", which would send the user to sign in.
+        return {Error::Unavailable,
+                mentionsAny(reason + " " + subreason, {"private video", "video is private"}) ? message : "Private video"};
     }
     if (status == "LOGIN_REQUIRED") {
         // "Sign in to confirm you're not a bot" is about who asks; anything
@@ -300,7 +320,9 @@ Result<VideoInfo> readPlayerResponse(const json &root, const std::string &videoI
     }
     const std::string reason = readString(*playability, "reason");
     if (!isAccepted(status)) {
-        return {playabilityFailure(status, reason, subreasonOf(*playability), asksForReload(*playability)), {}};
+        return {playabilityFailure(status, reason, subreasonOf(*playability), messagesOf(*playability),
+                                   asksForReload(*playability)),
+                {}};
     }
 
     // yt-dlp checks this too: now and then YouTube answers about another video.
