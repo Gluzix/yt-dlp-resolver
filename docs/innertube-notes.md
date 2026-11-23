@@ -438,12 +438,16 @@ probed again:
   them. The library fetches no page for a search: YouTube answered the bare
   request on 2026-10-01, and the page would cost as much as the search. It
   sends the visitor data a resolve has cached, when there is some.
-- **Visitor data across pages.** yt-dlp sends the latest
-  `responseContext.visitorData` a page named as `X-Goog-Visitor-Id` on page
-  2 and later; a page without one keeps the previous value. The library
-  does the same when it has no cached visitor data, after the same check
-  the watch page's value passes (`src/visitor_data.h`), and does not cache
-  it.
+- **Visitor data across pages.** Read from yt-dlp's source on 2026-11-23:
+  for page 2 and later, `_search_results` (`_tab.py`) passes only the page
+  before's `responseContext.visitorData`, and `generate_api_headers`
+  (`_base.py`) sends it as `X-Goog-Visitor-Id`, falling back, when that
+  page named none, on the visitor data of the ytcfg page yt-dlp downloaded
+  before searching. The library downloads no such page, so when it has no
+  cached visitor data it sends the latest value a page named, a page
+  without one keeping the previous value: its own choice, by the rule that
+  an old visitor id beats none. Each value passes the same check the watch
+  page's does (`src/visitor_data.h`) and is not cached.
 - **Length.** When a `videoRenderer` has no `lengthText`, yt-dlp reads the
   text of its `thumbnailOverlays[].thumbnailOverlayTimeStatusRenderer`; so
   does the library, taking the first.
@@ -546,6 +550,12 @@ helpers in `_tab.py`), not probed again:
   answered on 2026-10-01, leaving out the unavailable videos the bot drops
   anyway. It sends the visitor data a resolve has cached, when there is
   some.
+- **Visitor data across pages.** yt-dlp's `_entries` (`_tab.py`, read on
+  2026-11-23) takes each page's `responseContext.visitorData` for the next
+  request and keeps the previous value when a page names none, so a later
+  page carries the latest value a page named. The library does the same
+  when it has no cached visitor data, after the same check as for search,
+  and does not cache it.
 - **Alerts.** yt-dlp fails an answer that carries any alert of type
   `error`, whatever else it holds, with the last such alert's text
   (`_report_alerts` in `_base.py`). The library fails an answer with no

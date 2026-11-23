@@ -237,8 +237,11 @@ on 2026-10-01 YouTube answered it bare, so no watch page is fetched; if a
 resolve has cached visitor data, it goes along on every page. With none
 cached, page 2 and later carry the latest visitor data YouTube named on an
 earlier page (`responseContext.visitorData`; a page that names none keeps
-the one before), as yt-dlp does — checked by the same rule as the watch
-page's (`src/visitor_data.h`), and never cached.
+the one before) — checked by the same rule as the watch page's
+(`src/visitor_data.h`), and never cached. yt-dlp sends the page before's,
+and when that named none, the one from the ytcfg page it downloads before
+searching; the library downloads no page, so it keeps the latest a page
+named, since an old visitor id beats none.
 
 **Step 2 — the request.** `searchRequest()` hands two fields to
 `innertube::apiRequest()`, the builder every non-player InnerTube POST goes
@@ -550,10 +553,10 @@ before writing (203.0.113.7 and `"FIXTURE"` are the placeholders). With
 those two pieces, the whole path from URL to `bestAudio()` runs
 deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
-M3's `search_test.cpp`, 167 with M4's `playlist_test.cpp`, and 187 after
-the fix round of the first build, which added `utf8_test.cpp` and
-`cli_test.cpp` (the harness's argument parser and dump scrubber); `ctest`
-runs only this target.
+M3's `search_test.cpp`, 167 with M4's `playlist_test.cpp`, 187 after the
+fix round of the first build, which added `utf8_test.cpp` and
+`cli_test.cpp` (the harness's argument parser and dump scrubber), and 192
+after the loop traces of pull request 7; `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish

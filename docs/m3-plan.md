@@ -323,7 +323,8 @@ What this section once listed as still to do, done on the first build:
 1. All targets built with 0 warnings at `/W4 /permissive-`; nothing in the
    search code needed a change to compile.
 2. `ctest` passed (167 cases, 1244 assertions, before the fix round below;
-   187 and 1560 after it), and so did `ytres_live_tests` (7 cases, 368
+   187 and 1560 after it; 192 and 1599 after the loop-trace fixes that
+   close this section), and so did `ytres_live_tests` (7 cases, 368
    assertions): a live search Ok in about 600 ms, five videos, one request.
 3. `ytres_cli --search "rick astley never gonna give you up" --max 25` gave
    25 distinct videos over two pages, and a `--dump` of a live first page
@@ -352,5 +353,7 @@ did, all fixed in that round: a cancel check that threw before a later page
 lost the videos already read (it is now `Internal` for that page alone);
 with nothing cached, a later page carries the latest visitor data an
 earlier page named, not strictly the page before's, which the texts now
-say; `ytres.h` stated the two `Parse` exceptions so that they overlapped;
+say (at first they credited yt-dlp with it, wrongly: yt-dlp sends the page
+before's and otherwise the one from the ytcfg page it downloads first, so
+keeping the latest is the library's own rule); `ytres.h` stated the two `Parse` exceptions so that they overlapped;
 and `docs/walkthrough.md` still described the loop as it was before.

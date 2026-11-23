@@ -224,8 +224,8 @@ of nothing but lockups that are no video (playlists, channels) under a count
 above 0 stays `Parse`: a playlist of videos would not hold only those, and a
 renamed content type would look exactly like it.
 
-**Visitor data across pages**, as M3 does for search and yt-dlp's `_entries`
-does for every feed: `PlaylistPage` carries the page's
+**Visitor data across pages**, as M3 does for search and as yt-dlp's
+`_entries` does for playlists: `PlaylistPage` carries the page's
 `responseContext.visitorData` when it passes `visitorDataRefusal()`
 (`src/visitor_data.h`), and the loop sends the latest one with the
 following pages only when the cache holds nothing; a page that names none
@@ -305,7 +305,7 @@ size other than YouTube's hundred.
 
 What this section once listed as still to do, done on the first build: all
 targets built with 0 warnings; `ctest` passed (167 cases before the fix
-round, 187 after it) and so did `ytres_live_tests`, whose playlist case
+round, 187 after it, 192 after the loop-trace fixes below) and so did `ytres_live_tests`, whose playlist case
 listed 150 of the long playlist's videos, now 450 of them (447 when the
 fixtures were recorded), in two requests in about 1.5 s.
 `ytres_cli --playlist PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4 --max 150` gave 150

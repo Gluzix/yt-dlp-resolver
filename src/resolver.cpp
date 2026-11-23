@@ -350,8 +350,10 @@ Result<std::vector<SearchResult>> Resolver::Impl::search(std::string_view query,
     // No watch page for a search: YouTube answered it bare on 2026-10-01.
     // Whatever a resolve left in the cache goes along, fresh or stale, on
     // every page. With nothing cached, a later page carries the latest
-    // visitor data an earlier page named, as yt-dlp sends it: a page that
-    // names none keeps the one before, since an old visitor id beats none.
+    // visitor data an earlier page named: a page that names none keeps the
+    // one before, since an old visitor id beats none. yt-dlp sends the page
+    // before's and otherwise the one from the ytcfg page it downloads first;
+    // the library downloads no page, so it keeps the latest a page named.
     // That stays out of the cache, which holds what a watch page gave.
     const std::string cached = visitorCache.get(Clock::now()).value;
     std::string visitorData = cached;
@@ -447,7 +449,7 @@ Result<Playlist> Resolver::Impl::playlist(std::string_view urlOrId, std::size_t 
     }
     // As for a search: no watch page, whatever a resolve left in the cache
     // on every page, and with nothing cached, the latest visitor data an
-    // earlier page named, kept out of the cache.
+    // earlier page named, as yt-dlp's _entries does, kept out of the cache.
     const std::string cached = visitorCache.get(Clock::now()).value;
     std::string visitorData = cached;
     const Call call{std::string{}, request, deadline.value};

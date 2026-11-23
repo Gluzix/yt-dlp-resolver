@@ -79,8 +79,9 @@ results - an artist's name brings the artist's channel first. The first page
 holds about twenty videos; a larger `max` follows YouTube's continuation, one
 request per page, up to ten pages. It sends the visitor data a resolve has
 cached, but fetches none of its own; with none cached, a later page carries
-the latest visitor data YouTube named on an earlier page, as yt-dlp does. A
-live stream comes back with
+the latest visitor data YouTube named on an earlier page (yt-dlp sends the
+page before's, else that of a page it downloads first; the library downloads
+none). A live stream comes back with
 `isLive` and no length (`resolve()` answers it with `NoFormats`), a
 scheduled one with `isUpcoming`: the first result that is neither is the
 one to play. `max` of 0 or a blank query is `BadInput`. A first page on
