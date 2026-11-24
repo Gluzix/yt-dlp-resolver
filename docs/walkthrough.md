@@ -555,8 +555,9 @@ deterministically, and the tests pin what the Resolver actually *sends* —
 URL, headers, body — not only what it parses. 87 cases at M2, 125 with
 M3's `search_test.cpp`, 167 with M4's `playlist_test.cpp`, 187 after the
 fix round of the first build, which added `utf8_test.cpp` and
-`cli_test.cpp` (the harness's argument parser and dump scrubber), and 192
-after the loop traces of pull request 7; `ctest` runs only this target.
+`cli_test.cpp` (the harness's argument parser and dump scrubber), 192
+after the loop traces of pull request 7, and 198 after the dump scrubber's
+fix of 2026-11-24; `ctest` runs only this target.
 
 **`ytres_live_tests` — on demand.** The same doctest framework, but against
 real YouTube: it resolves `tests/corpus.txt` (an ordinary video, a Polish
