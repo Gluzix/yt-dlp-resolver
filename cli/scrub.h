@@ -160,7 +160,7 @@ inline std::string applied(const std::string &text, Rule rule, const char *start
 
 const char *const FAKE_ADDRESS = "203.0.113.7";
 
-// ?ip=, &ip=, %26ip%3D, %3Fip%3D, &ip= and the address after it.
+// ?ip=, &ip=, %26ip%3D, %3Fip%3D, \u0026ip= and the address after it.
 inline std::size_t queryAddress(const std::string &text, std::size_t at, std::string &replacement)
 {
     std::size_t end = oneOf(text, at, {"?", "&", "\\u0026"});
@@ -247,7 +247,7 @@ inline std::size_t visitorData(const std::string &text, std::size_t at, std::str
 // Every stream url names the requesting address: ?ip=/&ip= in queries,
 // /ip/<addr>/ in hlsManifestUrl's path, IPv6 percent-encoded. A url inside
 // signatureCipher is percent-encoded whole (%26ip%3D, %2Fip%2F), and a page
-// may escape its ampersands as &, so the separators come in those
+// may escape its ampersands as \u0026, so the separators come in those
 // forms too. The address itself is hex digits, dots and colons, a colon
 // possibly written %3A or, encoded twice, %253A - and nothing else, so that
 // the %26 after an encoded address is left for the next parameter.
