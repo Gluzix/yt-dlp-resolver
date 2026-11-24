@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -14,6 +15,11 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#if defined(_MSC_VER)
+#include <crtdbg.h>
+#include <cstdlib>
+#endif
 
 // Development harness for the ytres library - a test rig, not the product.
 // =======================================================
@@ -35,6 +41,9 @@
 //   conversion here either.
 // - A --dump is a fixture to commit, so scrubbed() (scrub.h) takes out what
 //   identifies whoever recorded it before writeFile() sees it.
+// - Nothing escapes main(): an exception is "Internal: <what>" on stderr
+//   with exit code 1, and a Debug build's C runtime reports to stderr, never
+//   in a window, so an unattended run cannot hang on a dialog.
 // =======================================================
 
 namespace {
@@ -239,9 +248,8 @@ int runPlaylist(ytres::Resolver &resolver, const RecordingHttpClient &recorder, 
     return writeDump(args, recorder.browseResponse, code);
 }
 
-}
-
-int main(int argc, char **argv)
+// The whole run, for main() to guard. The exit code.
+int run(int argc, char **argv)
 {
     ytres_cli::Arguments args;
     if (!ytres_cli::parseArguments(std::vector<std::string>(argv + 1, argv + argc), args)) {
@@ -270,4 +278,33 @@ int main(int argc, char **argv)
     const ytres::Result<ytres::VideoInfo> result = resolver.resolve(*args.target);
     // Written whatever the verdict: an unavailable video's answer is a fixture too.
     return writeDump(args, recorder->playerResponse, printVideo(result, args));
+}
+
+}
+
+int main(int argc, char **argv)
+{
+#if defined(_MSC_VER)
+    // The Debug C runtime opens a modal window on a failed assertion or an
+    // abort(); tests and scheduled runs drive this harness with nobody to
+    // close it, so it reports to stderr instead. Macros that expand to
+    // nothing in a Release build, hence no loop.
+    (void)_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    (void)_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+    (void)_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    (void)_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    (void)_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    (void)_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    (void)_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+    // Nothing escapes: an exception out of main() is an abort(), which is
+    // a crash to whoever drives the harness, not an answer.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception &e) {
+        std::cerr << "Internal: " << e.what() << '\n';
+    } catch (...) {
+        std::cerr << "Internal: unexpected failure\n";
+    }
+    return 1;
 }
