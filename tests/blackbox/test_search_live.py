@@ -34,18 +34,18 @@ def ids_of(cases: List[harness.SearchCase]) -> List[str]:
 
 # ytres's first result must be among yt-dlp's first FIRST_WITHIN, and at
 # least SHARED_AT_LEAST of ytres's first COMPARED among yt-dlp's first
-# AGAINST. The plan said within ten and at least five; real data showed that
-# far too loose to notice anything short of a total breakdown. Seen on
-# 2026-11-24 over three rounds of five candidate queries: ytres's first
-# result was yt-dlp's first in 13 of 15 cases (2nd and 5th for "billie
-# eilish", which was not kept), and 9 or 10 of its first ten were among
-# yt-dlp's twenty every time. Within five and at least seven leave room
-# for YouTube's day-to-day shuffle and still fail on a search that has
-# drifted to other videos. See corpus_search.txt for the queries.
+# AGAINST. The plan said within ten and at least five (half). Seen on
+# 2026-11-24: ytres's first result was yt-dlp's first in every recorded
+# round of the kept queries, so the first result is held to yt-dlp's first five,
+# which still fails a search whose order is reversed or whose first video
+# is another. The shared count moves more: 9 or 10 in three rounds a few
+# minutes apart, then 6 and 5 for "how to tie a tie" in later runs that day,
+# with both programs working. So it stays at the plan's half. See
+# corpus_search.txt for the rounds.
 FIRST_WITHIN = 5
 COMPARED = 10
 AGAINST = 20
-SHARED_AT_LEAST = 7
+SHARED_AT_LEAST = 5
 
 # The pages of a search: the first holds about twenty videos, so 25 takes two.
 ONE_PAGE = 5

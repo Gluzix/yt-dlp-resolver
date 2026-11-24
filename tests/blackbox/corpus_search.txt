@@ -5,7 +5,7 @@
 #   common   expect -        exactly max rows at --max 5 and 25 (two pages), every id
 #                            valid and distinct, every row with a title and a channel; and
 #                            close to yt-dlp's ytsearch20: ytres's first result among
-#                            yt-dlp's first five, and at least seven of ytres's first ten
+#                            yt-dlp's first five, and at least five of ytres's first ten
 #                            among yt-dlp's twenty (the numbers: test_search_live.py)
 #   first    expect an id    the first result is that video
 #   letters  expect text     the first result's channel or title holds that text, and
@@ -23,8 +23,14 @@
 #   how to make pancakes   1, 1, 1   10, 10, 10   held; a second how-to adds nothing
 #   lofi hip hop           1, 1, 1   10, 9, 9     held; its results move with live streams
 #   billie eilish          5, 1, 2    9, 10, 9    not kept: the first result wanders
-# A query that stops holding is replaced by another popular one checked the
-# same way, three rounds in a row, not by a looser tolerance.
+# Later the same day, in two of the suite's own live runs,
+# "how to tie a tie" had 6 and then 5 of ytres's first ten among yt-dlp's
+# twenty (its first result still yt-dlp's first), and one more run failed on
+# it at seven with its numbers not kept; both programs were working. Rounds
+# minutes apart miss how far the shared count moves, so the tolerance for it
+# is the plan's half, not the seven those three rounds suggested. Rounds taken
+# hours apart have not been recorded yet. A query that stops holding at that
+# is replaced by another popular one, checked over rounds hours apart.
 #
 # The other lines were confirmed with ytres_cli on 2026-11-24.
 common   -            bohemian rhapsody                     # a song title, the bot's everyday kind of search: one dominant official video, then covers and live takes
