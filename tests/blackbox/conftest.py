@@ -33,6 +33,9 @@ import harness
 # the test that tried would fail with Network. test_offline.py proves the
 # trap holds.
 DEAD_PROXY = 'http://127.0.0.1:9'
+
+# How a comparison skipped for want of yt-dlp gives its reason; the report counts them by it.
+NO_YTDLP = 'no comparison with yt-dlp'
 _PROXY_VARIABLES = ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY')
 
 
@@ -71,6 +74,7 @@ class RunState:
     rows: Dict[Tuple[str, str], Row] = field(default_factory=dict)
     row_of_test: Dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
     outcomes: Dict[str, str] = field(default_factory=dict)
+    comparisons_skipped: int = 0
     started: float = field(default_factory=time.monotonic)
 
 
@@ -162,7 +166,10 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
     _redact_report(report)
     # The test's verdict for the table: failed if any phase failed, else how
     # its call (or a setup that skipped it) ended.
-    outcomes = item.config.stash[STATE].outcomes
+    state = item.config.stash[STATE]
+    if report.skipped and isinstance(report.longrepr, tuple) and NO_YTDLP in report.longrepr[2]:
+        state.comparisons_skipped += 1
+    outcomes = state.outcomes
     if report.failed:
         outcomes[item.nodeid] = 'failed'
     elif report.when == 'call' or report.skipped:
@@ -249,6 +256,11 @@ def report_lines(state: RunState) -> List[str]:
     offline = dict(state.offline_launcher.starts)
     lines.append(f'programs started: live {live or "none"}; offline, behind the dead proxy, {offline or "none"}; '
                  f'{time.monotonic() - state.started:.0f} s')
+    if state.settings.live and state.settings.ytdlp is None:
+        # The comparisons are the suite's main point; a run without them
+        # passes, so its last lines say what it left out.
+        lines.append(f'NOT COMPARED WITH YT-DLP: {state.settings.ytdlp_missing}; '
+                     f'{state.comparisons_skipped} comparison(s) skipped (-rs shows them)')
     if state.brake.halt:
         lines.append(f'RUN HALTED: {state.brake.halt}')
     if state.brake.bot_check:
@@ -316,7 +328,7 @@ def ytdlp(pytestconfig: pytest.Config) -> harness.YtDlp:
     """yt-dlp against live YouTube, or a skip with the reason when there is none."""
     state = pytestconfig.stash[STATE]
     if state.settings.ytdlp is None:
-        pytest.skip(f'no comparison with yt-dlp: {state.settings.ytdlp_missing}')
+        pytest.skip(f'{NO_YTDLP}: {state.settings.ytdlp_missing}')
     return Remembering(harness.YtDlp(state.settings.ytdlp, state.live_launcher))  # type: ignore[return-value]
 
 

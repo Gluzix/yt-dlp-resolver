@@ -434,6 +434,19 @@ def test_the_report_table_gives_each_row_its_verdict() -> None:
     assert lines[-1].startswith('programs started: live none')
 
 
+@pytest.mark.parametrize('live', [True, False])
+def test_the_report_says_when_nothing_was_compared_with_ytdlp(live: bool) -> None:
+    import conftest
+    settings = conftest.Settings(live, Path('ytres_cli'), None, 'yt-dlp not found at nowhere')
+    brake = harness.Brake()
+    state = conftest.RunState(settings, brake, harness.Launcher(brake=brake), harness.Launcher(brake=brake))
+    state.comparisons_skipped = 10
+    said = [line for line in conftest.report_lines(state) if line.startswith('NOT COMPARED')]
+    # Without --live every live test is skipped anyway: nothing to point out.
+    assert said == (['NOT COMPARED WITH YT-DLP: yt-dlp not found at nowhere; 10 comparison(s) skipped '
+                     '(-rs shows them)'] if live else [])
+
+
 def test_a_failure_is_redacted_and_keeps_its_message_for_the_summary() -> None:
     import conftest
     url = stream_url()

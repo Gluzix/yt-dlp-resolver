@@ -326,14 +326,16 @@ run starts `ytres_cli` 22 times and yt-dlp 9 times, at least 1.5 seconds
 apart, and takes about a minute.
 
 - `--live`: also run the tests that talk to YouTube; without it they are
-  skipped, and say so.
+  skipped, each with its reason (add `-rs` to see the reasons of skipped
+  tests, as for any pytest run).
 - `--ytres-cli PATH`: the harness to test; default the `YTRES_CLI`
   environment variable, else `build\Debug\ytres_cli.exe`. Without one the
   run stops at once with one line saying so.
 - `--yt-dlp PATH`: the yt-dlp to compare with; default the `YT_DLP`
   environment variable, else the one on PATH. Without one every comparison
   is skipped with the reason, and the tests of `ytres_cli` on its own still
-  run.
+  run; such a run can pass, so the report ends with a line `NOT COMPARED
+  WITH YT-DLP` saying why and how many comparisons were skipped.
 
 At the end pytest prints a table: one row per video, search and playlist,
 with what each program said, how long it took, and the verdict, then how
