@@ -1,5 +1,5 @@
-# The live corpus: the videos ytres_live_tests and tools/differential.py
-# resolve against live YouTube. One per line: the id, the Error ytres_cli
+# The live corpus: the videos ytres_live_tests and the black-box tests
+# (tests/blackbox) resolve against live YouTube. One per line: the id, the Error ytres_cli
 # should report for it (Ok for one that plays), and after a # what it is for.
 # Found with yt-dlp --flat-playlist --print id "ytsearch1:<query>" and
 # confirmed with ytres_cli on 2026-09-24. Videos go away; when one does, find

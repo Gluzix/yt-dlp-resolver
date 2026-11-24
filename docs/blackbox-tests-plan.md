@@ -19,9 +19,11 @@ make Python the right tool for it: driving two programs and comparing their
 output is a few lines, and a readable report is easy to print. Its real job
 is to notice YouTube changing something before the bot's users do.
 
-`tools/differential.py` already does this for single videos. It stays as it
-is in this round; whether to fold it into the new suite is Kamil's decision
-afterwards.
+`tools/differential.py` already did this for single videos. It stayed as it
+was in this round, with whether to fold it into the new suite left to Kamil
+afterwards. He decided on 2026-11-24: the script is retired and deleted, and
+its checks live on in the suite (`test_resolve_live.py` and the end-of-run
+table), down to yt-dlp's answer shown beside a video ytres must refuse.
 
 ## Layout
 
@@ -40,8 +42,9 @@ tests/blackbox/
   corpus_playlists.txt playlists and what to expect of each
 ```
 
-Videos keep coming from `tests/corpus.txt`, which `ytres_live_tests` and
-`tools/differential.py` read too: one corpus of videos, three readers.
+Videos keep coming from `tests/corpus.txt`, which `ytres_live_tests` reads
+too: one corpus of videos, two readers (three until `tools/differential.py`
+was retired).
 
 Python 3.9 or later, standard library plus pytest. No package is installed
 into the machine's own Python: the README tells people to make a virtual
@@ -72,8 +75,8 @@ python -m venv .venv
 - `run(command, timeout)`: starts the program without a shell, passes
   arguments as a list, decodes both streams as UTF-8, and on a timeout kills
   the whole process tree (on Windows `taskkill /F /T`, because `yt-dlp.exe`
-  is a launcher whose child would otherwise keep the pipes open — the fix
-  `tools/differential.py` already carries).
+  is a launcher whose child would otherwise keep the pipes open — a fix
+  that came from `tools/differential.py`, since retired).
 - `Ytres`: `resolve(target)`, `search(query, max)`, `playlist(target, max)`,
   each returning a small dataclass or a failure `(code, message)` parsed from
   the last `"<Error>: <message>"` line on stderr; `dump` variants that also
@@ -163,7 +166,8 @@ gains this fourth layer. `.gitignore`: `.venv/`, `.pytest_cache/`.
 
 ## Out of scope
 
-Running on a schedule (a standing task on Kamil's PC is his to ask for).
-Running in GitHub Actions. Testing the bot. Changing or retiring
-`tools/differential.py`. Any change to the library or the harness — if a
+Running on a schedule: Kamil decided against a scheduled daily run
+(2026-11-24). Running in GitHub Actions. Testing the bot. Changing or
+retiring `tools/differential.py` (retired afterwards by Kamil's decision of
+2026-11-24; see the top of this plan). Any change to the library or the harness — if a
 test exposes a defect in them, report it; do not fix it here.
