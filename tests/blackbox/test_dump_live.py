@@ -78,6 +78,10 @@ def test_a_search_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path,
     answer = ytres.search(QUERY.query, 5, dump=dump_file)
     row.ytres(answer.code, answer.seconds)
     check_dump(answer, dump_file)
+    # The dump is the response the rows were read from: the first is in it.
+    assert answer.value, 'ytres found nothing'
+    first = answer.value[0].video_id
+    assert first and first in dump_file.read_text(encoding='utf-8'), f'the dump does not hold the first result {first}'
 
 
 def test_a_playlist_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path,
@@ -86,3 +90,7 @@ def test_a_playlist_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path,
     answer = ytres.playlist(PLAYLIST.target, 5, dump=dump_file)
     row.ytres(answer.code, answer.seconds)
     check_dump(answer, dump_file)
+    # The dump is the response the listing was read from: its first entry is in it.
+    assert answer.value is not None and answer.value.entries, 'ytres listed nothing'
+    first = answer.value.ids[0]
+    assert first and first in dump_file.read_text(encoding='utf-8'), f'the dump does not hold the first entry {first}'
