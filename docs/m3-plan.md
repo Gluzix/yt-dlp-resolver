@@ -357,3 +357,15 @@ say (at first they credited yt-dlp with it, wrongly: yt-dlp sends the page
 before's and otherwise the one from the ytcfg page it downloads first, so
 keeping the latest is the library's own rule); `ytres.h` stated the two `Parse` exceptions so that they overlapped;
 and `docs/walkthrough.md` still described the loop as it was before.
+
+On 2026-11-24 the dump scrubber was found to throw: a video `--dump` of a
+real player response ended in `abort()`, and in a Debug build in a modal
+dialog. Its regular expressions read a JSON string and an address with a
+repeated group, which MSVC's `std::regex` matches by recursing once per
+character; it threw `regex_error` on a value of 1000 characters (and
+overflowed the stack on megabytes), and no committed fixture held one long
+enough under the keys it looked at. The scrubber is now a hand-written
+scanner with the same rules, `ytres_cli` lets no exception out of `main()`,
+and the Debug runtime of both `ytres_cli` and the test runner reports to
+stderr instead of a window. The library uses no `std::regex` and was not
+affected. `ctest` then counted 198 cases and 1678 assertions.
