@@ -4,6 +4,8 @@
 
 #include <doctest/doctest.h>
 
+#include <chrono>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -94,6 +96,142 @@ TEST_CASE("every committed fixture is scrubbed already, so scrubbing it again ch
         REQUIRE_FALSE(body.empty());
         CHECK(scrubbed(body) == body);
     }
+}
+
+namespace {
+
+// scrubbed(in) gives expected, and does not throw. Compared as a bool so
+// that a failure does not print megabytes.
+void checkScrubsTo(const std::string &in, const std::string &expected)
+{
+    std::string out;
+    CHECK_NOTHROW(out = scrubbed(in));
+    const bool same = out == expected;
+    CHECK(same);
+}
+
+// n escape sequences, \" and \\ in turn.
+std::string escapes(std::size_t n)
+{
+    std::string text;
+    for (std::size_t i = 0; i < n; ++i) {
+        text += i % 2 == 0 ? R"(\")" : R"(\\)";
+    }
+    return text;
+}
+
+}
+
+// A real player response holds values of thousands of characters, and the
+// scrubber once read a JSON string with a regular expression that MSVC
+// matches by recursing once per character: it threw on a value of 1000.
+TEST_CASE("the scrubber leaves a long value under another key alone")
+{
+    for (std::size_t n : {std::size_t{1000}, std::size_t{20000}, std::size_t{2000000}}) {
+        CAPTURE(n);
+        const std::string in = R"({"value":")" + std::string(n, 'a') + R"(","key":"other"})";
+        checkScrubsTo(in, in);
+    }
+}
+
+TEST_CASE("the scrubber replaces visitor data however long it is")
+{
+    for (std::size_t n : {std::size_t{5000}, std::size_t{200000}}) {
+        CAPTURE(n);
+        const std::string value(n, 'C');
+        checkScrubsTo(R"({"visitorData":")" + value + R"(","x":1})", R"({"visitorData":"FIXTURE","x":1})");
+    }
+    const std::string value(5000, 'C');
+    checkScrubsTo(R"({"key":"visitor_data","value":")" + value + R"("})", R"({"key":"visitor_data","value":"FIXTURE"})");
+    checkScrubsTo(R"({"value":")" + value + R"(","key":"visitor_data"})", R"({"value":"FIXTURE","key":"visitor_data"})");
+}
+
+TEST_CASE("the scrubber reads a value full of escaped quotes and backslashes whole")
+{
+    const std::string value = escapes(10000);
+    checkScrubsTo(R"({"visitorData":")" + value + R"(","x":1})", R"({"visitorData":"FIXTURE","x":1})");
+    const std::string other = R"({"value":")" + value + R"(","key":"other"})";
+    checkScrubsTo(other, other);
+}
+
+TEST_CASE("the scrubber leaves broken text alone and does not throw on it")
+{
+    std::string everyByte;
+    for (int c = 0; c < 256; ++c) {
+        everyByte += static_cast<char>(c);
+    }
+    const std::string cases[] = {
+        "",
+        "\"",
+        "\\",
+        "not json at all",
+        everyByte,
+        R"({"visitorData":"abc)",
+        R"({"visitorData":"abc\)",
+        R"({"visitorData":)",
+        R"({"key":"visitor_data","value":"abc)",
+        R"({"key":"visitor_data","value":"abc\)",
+        R"({"value":"abc\)",
+        R"({"value":"abc","key":"visitor_da)",
+        "{\"visitorData\":\"a\\\nb\"}", // a backslash before a line break escapes nothing
+        "&ip=",
+        "&ip=%25",
+        "%",
+        "%2",
+        "\\u00",
+        "/ip/1.2",
+        "%2Fip%2F1.2.3.4",
+        R"({"visitorData":")" + std::string(2000000, 'C'),
+        R"({"value":")" + std::string(2000000, 'a') + "\\",
+        "/ip/" + std::string(2000000, '1'),
+    };
+    for (const std::string &in : cases) {
+        CAPTURE(in.size());
+        checkScrubsTo(in, in);
+    }
+    // Hex digits all the way are an address, however many there are.
+    checkScrubsTo("&ip=" + std::string(2000000, 'a'), "&ip=203.0.113.7");
+}
+
+TEST_CASE("the scrubber gets through a large player response quickly")
+{
+    // A format as a player response lists it, with a signature as long as a
+    // real one; the address is from a documentation range.
+    const std::string signature(900, 'Q');
+    const std::string format =
+        R"({"itag":251,"url":"https://rr3---sn-abcdefgh.googlevideo.com/videoplayback?expire=1764000000&ei=AbCdEfGh)"
+        R"(&ip=198.51.100.23&id=o-AAbbCCddEE&itag=251&source=youtube&requiressl=yes&mh=7c&mm=31%2C29)"
+        R"(&mn=sn-abcdefgh%2Csn-ijklmnop&ms=au%2Crdu&mv=m&mvi=3&pl=24&vprv=1&svpuc=1&mime=audio%2Fwebm)"
+        R"(&gir=yes&clen=3437753&dur=212.061&lmt=1714829870710966&fvip=4&keepalive=yes&c=IOS)"
+        R"(&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Csvpuc%2Cmime%2Cgir%2Cclen%2Cdur%2Clmt)"
+        R"(&sig=)" + signature + R"(","mimeType":"audio/webm; codecs=\"opus\"","bitrate":135421},)"
+        R"({"itag":18,"signatureCipher":"s=)" + signature +
+        R"(&sp=sig&url=https%3A%2F%2Frr3---sn-abcdefgh.googlevideo.com%2Fvideoplayback%3Fexpire%3D1764000000)"
+        R"(%26ip%3D2001%253Adb8%253A%253A1%26id%3Do-AAbbCCddEE"},)";
+    std::string in = R"({"responseContext":{"visitorData":")" + std::string(560, 'C') +
+                     R"("},"streamingData":{"hlsManifestUrl":"https://manifest.googlevideo.com/api/manifest/hls_variant/ip/198.51.100.23/id/o","adaptiveFormats":[)";
+    std::size_t formats = 0;
+    while (in.size() < 3000000) {
+        in += format;
+        ++formats;
+    }
+    in += R"({"itag":0}]}})";
+
+    const auto started = std::chrono::steady_clock::now();
+    std::string out;
+    CHECK_NOTHROW(out = scrubbed(in));
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    CAPTURE(seconds);
+    CHECK(seconds < 5.0); // generous: well under a second in a Debug build
+
+    CHECK(out.find("198.51.100.23") == std::string::npos);
+    CHECK(out.find("2001%253Adb8") == std::string::npos);
+    std::size_t replaced = 0;
+    for (std::size_t at = out.find("203.0.113.7"); at != std::string::npos; at = out.find("203.0.113.7", at + 1)) {
+        ++replaced;
+    }
+    CHECK(replaced == 2 * formats + 1);
+    CHECK(out.find(R"("visitorData":"FIXTURE")") != std::string::npos);
 }
 
 TEST_CASE("the command line: one mode, its own options, each once")
