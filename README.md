@@ -140,8 +140,9 @@ prints the error code and YouTube's reason to stderr and exits with 1.
   `BadInput`, say) says `No response to dump`. Scrubbing reads values of
   any length and never throws; should anything else fail inside the
   harness, it prints `Internal: <what>` and exits with 1. A dump never ends
-  the run in a crash or a dialog: a Debug build's C runtime reports to
-  stderr, not in a window, so an unattended run cannot hang on one.
+  the run in a dialog: should a Debug build fail an assertion or abort, its
+  C runtime writes the message to stderr and the program exits with a
+  non-zero code, never a window, so an unattended run cannot hang on one.
 - `--client visionos|web` asks that one InnerTube client instead of the
   library's ladder, to see what YouTube tells it today. `web` needs the
   player JavaScript and a PO Token, so YouTube turns it away (`NoFormats`);

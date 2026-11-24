@@ -6,6 +6,12 @@
 #include <cstdlib>
 #endif
 
+#if defined(_MSC_VER)
+// The abort flags as main() left them. doctest clears both while a test case
+// runs (it reports a SIGABRT itself), so the case cannot read them live.
+static unsigned int abort_flags_set_by_main = 0;
+#endif
+
 // doctest's own main, but with the Debug C runtime told to report to stderr:
 // a failed assertion or an abort() in a Debug build would otherwise open a
 // modal window, and an unattended run would wait on it for ever.
@@ -19,7 +25,12 @@ int main(int argc, char **argv)
     (void)_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     (void)_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     (void)_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-    (void)_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    // Only the fault report goes: an abort() still writes its message, and
+    // to stderr, because _CRT_ERROR does; a silent exit code 3 would tell
+    // whoever reads the run's output nothing.
+    (void)_set_abort_behavior(0, _CALL_REPORTFAULT);
+    // (0, 0) reads the flags back without changing them.
+    abort_flags_set_by_main = _set_abort_behavior(0, 0);
 #endif
     return doctest::Context(argc, argv).run();
 }
@@ -37,6 +48,7 @@ TEST_CASE("a Debug test run reports to stderr, not to a window")
         CHECK((mode & _CRTDBG_MODE_FILE) != 0);
         CHECK((mode & _CRTDBG_MODE_WNDW) == 0);
     }
-    CHECK((_set_abort_behavior(0, 0) & (_WRITE_ABORT_MSG | _CALL_REPORTFAULT)) == 0);
+    CHECK((abort_flags_set_by_main & _CALL_REPORTFAULT) == 0);
+    CHECK((abort_flags_set_by_main & _WRITE_ABORT_MSG) != 0);
 }
 #endif

@@ -295,7 +295,10 @@ int main(int argc, char **argv)
     (void)_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     (void)_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     (void)_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-    (void)_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    // Only the fault report goes: an abort() still writes its message, and
+    // to stderr, because _CRT_ERROR does; a silent exit code 3 would tell
+    // whoever reads the run's output nothing.
+    (void)_set_abort_behavior(0, _CALL_REPORTFAULT);
 #endif
     // Nothing escapes: an exception out of main() is an abort(), which is
     // a crash to whoever drives the harness, not an answer.
