@@ -113,7 +113,11 @@ def test_ytres_lists_what_ytdlp_lists(case: harness.PlaylistCase, ytres: harness
     theirs = ytdlp.playlist(harness.playlist_url(list_id), YTDLP_MAX[list_id])
     row.ytres(said(ours), ours.seconds)
     if theirs.value is not None:
-        row.ytdlp(f'count {theirs.value.count}, {len(theirs.value.ids)} listed', theirs.seconds)
+        # yt-dlp's run may be shared with a line that wants more entries:
+        # the row says how many of them this line compared.
+        listed = len(theirs.value.ids)
+        compared = f'first {case.max} of {listed}' if listed > case.max else f'{listed} listed'
+        row.ytdlp(f'count {theirs.value.count}, {compared}', theirs.seconds)
     else:
         row.ytdlp(str(theirs.failure), theirs.seconds)
     assert ours.ok and ours.value is not None, f'{case.purpose}: ytres failed: {ours.failure}'
