@@ -35,7 +35,10 @@ def test_redact_reduces_a_stream_url_to_its_itag() -> None:
     assert text == 'picked <stream url, itag 251> for you'
 
 
-@pytest.mark.parametrize('address', [ADDRESS, ADDRESS6, ADDRESS6.replace(':', '%3A')])
+# Explicit ids here and below: pytest prints a parameter as the test's name,
+# and a run's output shows no address, not even a documentation one.
+@pytest.mark.parametrize('address', [ADDRESS, ADDRESS6, ADDRESS6.replace(':', '%3A')],
+                         ids=['IPv4', 'IPv6', 'IPv6 percent-encoded'])
 def test_redact_leaves_no_trace_of_the_address_or_the_host(address: str) -> None:
     text = harness.redact(stream_url(address))
     for trace in (address, 'googlevideo', 'ip='):
