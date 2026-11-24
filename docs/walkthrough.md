@@ -569,11 +569,22 @@ pages, which is what would notice YouTube reshaping either answer. Not in
 `ctest`, because YouTube's answers change and the network is not a test
 fixture.
 
-**`tools/differential.py` — the early-warning system.** Runs `ytres_cli` and
-`yt-dlp.exe` over the corpus and compares title, page URL and chosen itag,
-with timings. yt-dlp has a team patching YouTube breakage within hours; this
-script is how a solo maintainer notices before Discord users do. Run it
-whenever something feels off, and after any YouTube change you hear about.
+**`tests/blackbox/` — the outside view, in Python, and the early-warning
+system.** A pytest suite that drives `ytres_cli` as a user of the harness
+would and compares what it prints with yt-dlp, for videos (the same
+corpus), searches and playlists, plus the `--dump` scrubbing. Its offline
+part needs no network at all - the command line's usage and `BadInput`
+answers, and the suite's own parsers - and proves it: `ytres_cli` runs
+behind a proxy on 127.0.0.1 that nobody listens on. `--live` adds the rest,
+paced at 1.5 seconds between program starts and stopped by the first bot
+check: every corpus video's title, page URL and chosen itag against
+`yt-dlp -f bestaudio`, the search and browse paths against yt-dlp's, and a
+table of both sides with timings at the end. yt-dlp has a team patching
+YouTube breakage within hours; this live run is how a solo maintainer
+notices before Discord users do. Run it whenever something feels off, and
+after any YouTube change you hear about. It took over that job from
+`tools/differential.py`, a script that compared single videos only and was
+retired on 2026-11-24. See README, "Black-box tests".
 
 *Questions: what would a YouTube change to the JSON do to each layer? Which
 layer catches a regression in header construction, and which catches

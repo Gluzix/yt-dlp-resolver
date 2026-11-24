@@ -331,7 +331,8 @@ written down in `docs/innertube-notes.md`, "Search and playlists";
 ## Testing
 
 The differential harness is the highest-value thing in this project, more so
-than any unit test. YouTube breaks this library; you mostly do not.
+than any unit test (it now lives in `tests/blackbox`, as the black-box
+suite's live run). YouTube breaks this library; you mostly do not.
 
 1. **Fixture tests (offline, deterministic, in CI).** A fake `HttpClient`
    replays recorded responses. The CLI harness gets a `--dump` mode that

@@ -5,3 +5,5 @@ vcpkg_installed/
 *.user
 CMakeLists.txt.user
 __pycache__/
+.venv/
+.pytest_cache/

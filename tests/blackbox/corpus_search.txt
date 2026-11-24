@@ -1,0 +1,40 @@
+# The live searches of tests/blackbox/test_search_live.py and test_dump_live.py.
+# One per line: a kind, what to expect, the query (the rest of the line, its
+# words single-spaced), and after a # what the line is for.
+#
+#   common   expect -        exactly max rows at --max 5 and 25 (two pages), every id
+#                            valid and distinct, every row with a title and a channel; and
+#                            close to yt-dlp's ytsearch20: ytres's first result among
+#                            yt-dlp's first five, and at least five of ytres's first ten
+#                            among yt-dlp's twenty (the numbers: test_search_live.py)
+#   first    expect an id    the first result is that video
+#   letters  expect text     the first result's channel or title holds that text, and
+#                            YouTube echoes the query intact (read from a --dump): the
+#                            regression test for ytres_cli's UTF-8 manifest
+#   nothing  expect -        exit code 0 and no rows
+#
+# The common queries were chosen on 2026-11-24 from five candidates, in three
+# rounds in a row a few minutes apart, with ytres_cli --search <query> --max 25
+# against yt-dlp 2026.08.19 --flat-playlist --print id "ytsearch20:<query>".
+# Where ytres's first result stood in yt-dlp's list, and how many of ytres's
+# first ten were among yt-dlp's twenty, per round:
+#   bohemian rhapsody      1, 1, 1    9, 9, 10    kept
+#   how to tie a tie       1, 1, 1   10, 10, 10   kept
+#   how to make pancakes   1, 1, 1   10, 10, 10   held; a second how-to adds nothing
+#   lofi hip hop           1, 1, 1   10, 9, 9     held; its results move with live streams
+#   billie eilish          5, 1, 2    9, 10, 9    not kept: the first result wanders
+# Later the same day, in two of the suite's own live runs,
+# "how to tie a tie" had 6 and then 5 of ytres's first ten among yt-dlp's
+# twenty (its first result still yt-dlp's first), and one more run failed on
+# it at seven with its numbers not kept; both programs were working. Rounds
+# minutes apart miss how far the shared count moves, so the tolerance for it
+# is the plan's half, not the seven those three rounds suggested. Rounds taken
+# hours apart have not been recorded yet. A query that stops holding at that
+# is replaced by another popular one, checked over rounds hours apart.
+#
+# The other lines were confirmed with ytres_cli on 2026-11-24.
+common   -            bohemian rhapsody                     # a song title, the bot's everyday kind of search: one dominant official video, then covers and live takes
+common   -            how to tie a tie                      # a how-to: no artist channel among the results, a stable first video
+first    dQw4w9WgXcQ  rick astley never gonna give you up   # the video the project was built on; its first hit on 2026-11-24
+letters  Podsiadło    Dawid Podsiadło                       # Polish letters; on 2026-11-24 the first video was his "na błysk", on his channel
+nothing  -            zxqv wplk jhgf mnbv qwerty asdfg      # keyboard noise: no video found on 2026-11-24

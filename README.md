@@ -34,7 +34,8 @@ probing that followed fixed what it found; "Verified live" in
 Windows 10 or 11, Visual Studio 2022 (MSVC), CMake 3.14+ and vcpkg at
 `C:/vcpkg`. libcurl, nlohmann-json and doctest come through the `vcpkg.json`
 manifest; the first configure builds libcurl from source and takes a few
-minutes. The differential harness also wants Python 3 and yt-dlp.
+minutes. The black-box tests also want Python 3.9 or later with pytest, and
+yt-dlp to compare with.
 
 ## Building
 
@@ -268,8 +269,8 @@ may have gone, or YouTube may have changed something.
 
 ## The corpus
 
-`tests/corpus.txt` holds the videos the live tests and the harness resolve,
-one per line: the id, the `Error` ytres should report for it (`Ok` for one
+`tests/corpus.txt` holds the videos the live tests and the black-box tests
+resolve, one per line: the id, the `Error` ytres should report for it (`Ok` for one
 that plays), and after a `#` what it is for. Between them they cover an
 ordinary video, a Polish title, one over an hour, a 24/7 live stream, an
 auto-generated "- Topic" upload, an age-restricted video and one that does
@@ -277,17 +278,76 @@ not exist. When a video goes away, replace it with another of its kind: find
 one with `yt-dlp --flat-playlist --print id "ytsearch1:<query>"` and confirm
 it with `ytres_cli`.
 
-## Differential harness
+## Black-box tests
+
+`tests/blackbox/` tests the library from the outside, as a user of the
+harness would: it runs `ytres_cli`, reads what it prints, and compares that
+with what yt-dlp says about the same video, search or playlist. It is an
+addition to `ytres_tests` and `ytres_live_tests`, which stay as they are;
+`ctest` does not run it. Python 3.9 or later and pytest, in a virtual
+environment of its own (`.venv/`, git-ignored), never in the machine's
+Python:
 
 ```
-python tools/differential.py [--yt-dlp PATH] [--ytres PATH] [--corpus PATH]
+python -m venv .venv
+.venv\Scripts\python -m pip install -r tests/blackbox/requirements.txt
+.venv\Scripts\python -m pytest tests/blackbox            (offline part only)
+.venv\Scripts\python -m pytest tests/blackbox --live     (everything; talks to YouTube)
 ```
 
-runs `ytres_cli` and yt-dlp (`-f bestaudio`) on every video in the corpus and
-compares the title, the page URL and the itag each picks, printing a row per
-video with both timings; it exits non-zero on any mismatch. It is the early
-warning that YouTube changed something. yt-dlp comes from `--yt-dlp` or PATH;
-`ytres_cli` defaults to `build\Debug\ytres_cli.exe`. A video the corpus
-expects ytres to refuse passes when ytres refuses it with that code, whatever
-yt-dlp makes of it: yt-dlp plays a live stream through HLS, which the library
-does not read. Python 3, standard library only.
+The offline part sends no request: it tests the suite's own parsers, the
+corpus readers and the redaction, and `ytres_cli`'s command line - the usage
+text, and `BadInput` for what it refuses before asking YouTube - with
+`ytres_cli` behind a proxy on 127.0.0.1 that nobody listens on, so that a
+request it should not make fails on this machine. With `--live` it also
+resolves every video of `tests/corpus.txt`, runs the searches of
+`tests/blackbox/corpus_search.txt` and lists the playlists of
+`tests/blackbox/corpus_playlists.txt`, compares each with yt-dlp (`-f
+bestaudio`; `ytsearch20:`, tolerantly, since YouTube orders the two
+searches a little differently; `--flat-playlist`, exactly, but for a
+curated playlist whose late slots YouTube serves differently from one
+request to the next), and checks that
+`--dump` writes scrubbed JSON for a video, a search and a playlist. A live
+run starts `ytres_cli` 22 times and yt-dlp 12 times, at least 1.5 seconds
+apart, and takes about a minute.
+
+The live run is the early warning that YouTube changed something:
+
+```
+.venv\Scripts\python -m pytest tests/blackbox --live --yt-dlp=PATH
+```
+
+For every video in the corpus that plays, the title, the page URL and the
+itag `ytres_cli` picks must be yt-dlp's (`-f bestaudio`; its `251-drc` is
+itag 251 too). A video the corpus expects ytres to refuse passes when ytres
+refuses it with that code, whatever yt-dlp makes of it: yt-dlp plays a live
+stream through HLS, which the library does not read. yt-dlp's answer for
+such a video is shown in the table beside ytres's, for information only.
+
+- `--live`: also run the tests that talk to YouTube; without it they are
+  skipped, each with its reason (add `-rs` to see the reasons of skipped
+  tests, as for any pytest run).
+- `--ytres-cli=PATH`: the harness to test; default the `YTRES_CLI`
+  environment variable, else `build\Debug\ytres_cli.exe`. Without one the
+  run stops at once with one line saying so.
+- `--yt-dlp=PATH`: the yt-dlp to compare with; default the `YT_DLP`
+  environment variable, else the one on PATH. Without one every comparison
+  is skipped with the reason, and the tests of `ytres_cli` on its own still
+  run; such a run can pass, so the report ends with a line `NOT COMPARED
+  WITH YT-DLP` saying why and how many comparisons were skipped.
+
+At the end pytest prints a table: one row per video, search and playlist,
+with what each program said, how long it took, and the verdict, then how
+many times each program was started. `--junitxml <file>` keeps a run's
+results, as for any pytest run. Nothing the suite prints or writes shows a
+stream URL or an address: they carry the requesting IP, and every message
+goes through a redaction that reduces a stream URL to its itag.
+
+A failure shows both sides; a mismatch with yt-dlp means "look", not "the
+library broke". A corpus entry may have gone (replace it
+with another of its kind, as each corpus file says), YouTube may have
+changed something, or the library may have. The first bot check, "not a
+bot" or HTTP 429 stops every live request of the run and skips the rest
+with that reason. A `ytres_cli` that is still running after a minute, or
+exits with anything but 0 or 1 (an abort is 3), is killed and halts the
+whole run: a hang may be a window nobody is there to close.
