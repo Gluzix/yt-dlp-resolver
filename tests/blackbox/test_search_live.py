@@ -120,6 +120,10 @@ def test_the_first_result_is_the_known_video(case: harness.SearchCase, ytres: ha
     first = answer.value[0]
     assert first.video_id == case.expect, (
         f'{case.purpose}: the first result is {first.video_id} ({first.title!r}), not {case.expect}')
+    # A known ordinary video: its row must give its length, not "live" or
+    # "upcoming", which a bot would queue differently.
+    assert first.length.isdigit() and int(first.length) > 0, (
+        f'{case.purpose}: {first.video_id} has length {first.length!r}, not its seconds')
 
 
 def queries_in(node: Any) -> Iterator[str]:
