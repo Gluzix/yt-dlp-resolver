@@ -2,8 +2,12 @@
 
     pytest tests/blackbox                 the offline part: no request leaves the machine
     pytest tests/blackbox --live          everything; talks to YouTube, paced
-    --ytres-cli PATH                      default $YTRES_CLI, else build/Debug/ytres_cli(.exe)
-    --yt-dlp PATH                         default $YT_DLP, else the one on PATH
+    --ytres-cli=PATH                      default $YTRES_CLI, else build/Debug/ytres_cli(.exe)
+    --yt-dlp=PATH                         default $YT_DLP, else the one on PATH
+
+Write those two with "=": pytest settles its rootdir before this file
+registers them, so a separate PATH reads as a path to test. The repository's
+pytest.ini keeps the rootdir there either way.
 
 Live tests carry the `live` marker (pytestmark in their module). Without
 --live they are skipped; with it, the first bot check skips every live test
@@ -96,7 +100,7 @@ def _settings(config: pytest.Config) -> Settings:
     if not cli.is_file():
         # The whole run stops here: every test needs it, the offline ones too.
         raise pytest.UsageError(f'ytres_cli not found at {cli}: build it (cmake --build build --config Debug) '
-                                'or pass --ytres-cli PATH')
+                                'or pass --ytres-cli=PATH')
     given = config.getoption('yt_dlp') or os.environ.get('YT_DLP')
     if given:
         ytdlp = Path(given) if Path(given).is_file() else None
@@ -104,7 +108,7 @@ def _settings(config: pytest.Config) -> Settings:
     else:
         found = shutil.which('yt-dlp')
         ytdlp = Path(found) if found else None
-        missing = '' if ytdlp else 'yt-dlp is not on PATH; pass --yt-dlp PATH or set YT_DLP'
+        missing = '' if ytdlp else 'yt-dlp is not on PATH; pass --yt-dlp=PATH or set YT_DLP'
     return Settings(config.getoption('live'), cli.resolve(), ytdlp, missing)
 
 
