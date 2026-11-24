@@ -5,7 +5,9 @@
 # compared with yt-dlp --flat-playlist's (- for a line that lists nothing);
 # after a # what the line is for. An Ok line also wants at least min(max, N)
 # entries and no more than max, every id valid and distinct, every entry
-# titled, and the same playlist title and count as yt-dlp. Its ids are
+# titled (and, with an exact count N, every entry's seconds above 0), the
+# same playlist title and count as yt-dlp, and each entry's seconds within 2
+# of yt-dlp's duration for it where yt-dlp gives one. Its ids are
 #   exact    the same ids as yt-dlp's, in the same order
 #   curated  as many ids as yt-dlp's, the first 40 in the same order and at
 #            least 95% of them shared: for a playlist YouTube re-curates, whose

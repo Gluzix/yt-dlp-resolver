@@ -253,19 +253,21 @@ def test_parse_ytdlp_search_leaves_out_the_channels() -> None:
 
 
 def test_parse_ytdlp_playlist_and_its_playable_ids() -> None:
-    playlist = harness.parse_ytdlp_playlist('DxREm3s1scA\t7\tOur favourite\tElon\tMusk\n'
-                                            'XW0QZmtbjvs\t7\tOur favourite\t[Private video]\n'
-                                            '4dC_nRYIDZU\tNA\tOur favourite\tSam Harris\n')
+    playlist = harness.parse_ytdlp_playlist('DxREm3s1scA\t7\t9108.0\tOur favourite\tElon\tMusk\n'
+                                            'XW0QZmtbjvs\t7\tNA\tOur favourite\t[Private video]\n'
+                                            '4dC_nRYIDZU\tNA\t213\tOur favourite\tSam Harris\n')
     assert playlist.title == 'Our favourite'
     assert playlist.count is None  # the last line said NA
     assert playlist.ids == ('DxREm3s1scA', 'XW0QZmtbjvs', '4dC_nRYIDZU')
     assert playlist.entry_titles[0] == 'Elon\tMusk'
+    assert playlist.durations == (9108.0, None, 213.0)
     assert playlist.playable_ids == ['DxREm3s1scA', '4dC_nRYIDZU']
 
 
-def test_parse_ytdlp_playlist_refuses_a_broken_line() -> None:
+@pytest.mark.parametrize('stdout', ['DxREm3s1scA 7 title\n', 'DxREm3s1scA\t7\tOur favourite\tElon Musk\n'])
+def test_parse_ytdlp_playlist_refuses_a_broken_line(stdout: str) -> None:
     with pytest.raises(harness.OutputError):
-        harness.parse_ytdlp_playlist('DxREm3s1scA 7 title\n')
+        harness.parse_ytdlp_playlist(stdout)
 
 
 def test_parse_ytdlp_failure_takes_the_last_error() -> None:

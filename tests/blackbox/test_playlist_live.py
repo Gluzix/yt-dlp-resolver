@@ -54,6 +54,11 @@ CURATED_SAME_ORDER = 40
 CURATED_SHARED = 0.95
 
 
+# How far an entry's seconds may be from yt-dlp's duration for it: both read
+# the same length text, so only rounding is allowed.
+SECONDS_OFF = 2
+
+
 def curated_difference(mine: List[Optional[str]], theirs: List[str]) -> Optional[str]:
     """Why two listings of a curated playlist differ beyond what YouTube's re-curating explains, or None."""
     if len(mine) != len(theirs):
@@ -102,6 +107,12 @@ def test_ytres_lists_as_the_corpus_expects(case: harness.PlaylistCase, ytres: ha
     assert len(set(ids)) == len(ids), f'a video comes twice: {ids}'
     untitled = [entry.video_id for entry in listing.entries if not entry.title.strip()]
     assert not untitled, f'entries without a title: {untitled}'
+    if case.count.value is not None and not case.count.at_least:
+        # A playlist of a known, fixed size holds known videos, none of them
+        # live: every one has its length. (A growing one may gain a live
+        # entry or a premiere, which has none.)
+        unmeasured = [entry.video_id for entry in listing.entries if entry.seconds <= 0]
+        assert not unmeasured, f'{case.purpose}: entries without seconds: {unmeasured}'
 
 
 @pytest.mark.parametrize('case', LISTING, ids=ids_of(LISTING))
@@ -144,3 +155,11 @@ def test_ytres_lists_what_ytdlp_lists(case: harness.PlaylistCase, ytres: harness
     assert mine.title == other.title, f'title: ytres {mine.title!r}, yt-dlp {other.title!r}'
     if other.count is not None:
         assert mine.count == other.count, f'count: ytres {mine.count}, yt-dlp {other.count}'
+    # A bot shows a queue's length from these seconds. Compared by id, so
+    # that a curated playlist's late slot changes nothing; an entry yt-dlp
+    # gives no duration for (a live one, say) is left out.
+    their_seconds = {video_id: seconds for video_id, seconds in zip(other.ids, other.durations) if seconds is not None}
+    off = [f'{entry.video_id}: ytres {entry.seconds}, yt-dlp {their_seconds[entry.video_id]:g}'
+           for entry in mine.entries[:len(my_ids)]
+           if entry.video_id in their_seconds and abs(entry.seconds - their_seconds[entry.video_id]) > SECONDS_OFF]
+    assert not off, f'{case.purpose}: {len(off)} entries with other seconds than yt-dlp\'s: {off[:5]}'

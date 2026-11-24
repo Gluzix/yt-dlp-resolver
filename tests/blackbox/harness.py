@@ -586,11 +586,12 @@ UNAVAILABLE_TITLES = ('[Private video]', '[Deleted video]')
 
 @dataclass(frozen=True)
 class YtPlaylist:
-    """yt-dlp --flat-playlist's title and count of a playlist, and the ids and titles it listed."""
+    """yt-dlp --flat-playlist's title and count of a playlist, and the ids, titles and durations it listed."""
     title: str
     count: Optional[int]
     ids: Tuple[str, ...]
     entry_titles: Tuple[str, ...]
+    durations: Tuple[Optional[float], ...]  # seconds; None where yt-dlp does not know (NA)
 
     @property
     def playable_ids(self) -> List[str]:
@@ -627,24 +628,34 @@ def parse_ytdlp_search(stdout: str) -> List[str]:
 
 # What YtDlp.playlist() has yt-dlp print per entry, a tab between fields; the
 # entry's title last, so that a tab inside it stays in it.
-YTDLP_PLAYLIST_LINE = '%(id)s\t%(playlist_count)s\t%(playlist_title)s\t%(title)s'
+YTDLP_PLAYLIST_LINE = '%(id)s\t%(playlist_count)s\t%(duration)s\t%(playlist_title)s\t%(title)s'
+
+
+def _seconds_or_none(text: str) -> Optional[float]:
+    """A duration yt-dlp printed (213, or 213.0), or None for NA."""
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def parse_ytdlp_playlist(stdout: str) -> YtPlaylist:
     """Lines of YTDLP_PLAYLIST_LINE, one per entry; an empty playlist has none."""
     ids = []
     entry_titles = []
+    durations = []
     title = ''
     count: Optional[int] = None
     for number, line in enumerate(lines_of(stdout), 1):
-        fields = line.split('\t', 3)
-        if len(fields) != 4 or not is_video_id(fields[0]):
-            raise OutputError(f'yt-dlp: line {number} is not "<id> <count> <playlist title> <title>"')
+        fields = line.split('\t', 4)
+        if len(fields) != 5 or not is_video_id(fields[0]):
+            raise OutputError(f'yt-dlp: line {number} is not "<id> <count> <duration> <playlist title> <title>"')
         ids.append(fields[0])
-        entry_titles.append(fields[3])
-        title = fields[2]
+        durations.append(_seconds_or_none(fields[2]))
+        entry_titles.append(fields[4])
+        title = fields[3]
         count = int(fields[1]) if fields[1].isdigit() else None  # "NA" when yt-dlp does not know
-    return YtPlaylist(title, count, tuple(ids), tuple(entry_titles))
+    return YtPlaylist(title, count, tuple(ids), tuple(entry_titles), tuple(durations))
 
 
 class YtDlp:
