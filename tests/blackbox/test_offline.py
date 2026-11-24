@@ -367,6 +367,40 @@ def test_ytdlp_failing_halts_nothing() -> None:
     assert launch.stopped is None
 
 
+# --- Dumps -----------------------------------------------------------------
+
+def test_a_scrubbed_dump_holds_no_foreign_address() -> None:
+    text = ('{"url":"https://rr1---sn-x.googlevideo.com/videoplayback?expire=1\\u0026ip=203.0.113.7\\u0026fvip=4",'
+            '"hls":"https://manifest.googlevideo.com/api/manifest/hls_variant/ip/203.0.113.7/id/x",'
+            '"title":"Live, 23.06.2024"}')
+    assert harness.foreign_ipv4_in(text) == []
+    assert harness.foreign_address_parameters_in(text) == []
+
+
+@pytest.mark.parametrize('text', [
+    pytest.param('videoplayback?expire=1&ip=' + ADDRESS + '&id=x', id='query'),
+    pytest.param('videoplayback?expire=1\\u0026ip=' + ADDRESS6.replace(':', '%3A'), id='escaped query, IPv6'),
+    pytest.param('signatureCipher=url%3Dhttps%253A%252F%252Fx%26ip%3D' + ADDRESS6.replace(':', '%253A') + '%26id',
+                 id='cipher, encoded twice'),
+    pytest.param('hls_variant/expire/1/ip/' + ADDRESS6 + '/id/x', id='manifest path, IPv6'),
+    pytest.param('hls_variant%2Fip%2F' + ADDRESS + '%2Fid', id='encoded manifest path'),
+])
+def test_a_dump_with_the_address_left_in_is_caught(text: str) -> None:
+    assert len(harness.foreign_address_parameters_in(text)) == 1
+
+
+def test_visitor_data_is_found_under_both_names() -> None:
+    response = {'responseContext': {'visitorData': 'CgtFAKE', 'serviceTrackingParams': [
+        {'params': [{'key': 'visitor_data', 'value': 'CgtOTHER'}, {'key': 'c', 'value': 'WEB'}]}]}}
+    assert sorted(harness.visitor_data_in(response)) == ['CgtFAKE', 'CgtOTHER']
+    assert harness.visitor_data_in({'visitorData': 'FIXTURE', 'a': [1, 'x']}) == ['FIXTURE']
+
+
+def test_longest_string_in() -> None:
+    assert harness.longest_string_in({'a': ['xx', {'b': 'x' * 1000}], 'c': 5}) == 1000
+    assert harness.longest_string_in([]) == 0
+
+
 # --- The report ------------------------------------------------------------
 
 def test_the_report_table_gives_each_row_its_verdict() -> None:

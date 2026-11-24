@@ -22,7 +22,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Generic, List, Mapping, Optional, Sequence, Tuple, TypeVar
+from typing import Any, Callable, Generic, List, Mapping, Optional, Sequence, Tuple, TypeVar
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -675,6 +675,61 @@ class YtDlp:
         """The first count entries of a playlist, with its title and count."""
         return self._run(['--flat-playlist', '--playlist-items', f':{count}', '--print', YTDLP_PLAYLIST_LINE, url],
                          parse_ytdlp_playlist)
+
+
+# --- Dumps -----------------------------------------------------------------
+#
+# What ytres_cli --dump promises (README "Running"): the response, with the
+# requesting address replaced by the placeholder and visitor data by FIXTURE.
+# These read a dump's text and say what it still holds. They return what
+# they find so that a test can count it; a test never prints the values.
+
+PLACEHOLDER_VISITOR_DATA = 'FIXTURE'
+
+# ip=<address> in a query (& as itself, & or %26; = as itself or %3D),
+# and /ip/<address>/ in a path (/ as itself or %2F): the forms the scrubber
+# rewrites, each taking the address that follows.
+_DUMP_ADDRESS = re.compile(
+    r'(?:(?:[?&]|\\u0026|%26|%3[Ff])ip(?:=|%3[Dd])|(?:/|%2[Ff])ip(?:/|%2[Ff]))((?:[0-9A-Fa-f.:]|%3[Aa]|%253[Aa])+)')
+
+
+def foreign_ipv4_in(text: str) -> List[str]:
+    """Every dotted-quad address in text but the placeholder."""
+    return [address for address in ipv4_addresses_in(text) if address != PLACEHOLDER_ADDRESS]
+
+
+def foreign_address_parameters_in(text: str) -> List[str]:
+    """Every address after an ip= or /ip/ in text but the placeholder: IPv6 ones too."""
+    return [match.group(1) for match in _DUMP_ADDRESS.finditer(text) if match.group(1) != PLACEHOLDER_ADDRESS]
+
+
+def visitor_data_in(node: Any) -> List[str]:
+    """Every visitor data value in a parsed response, under either name it travels by.
+
+    "visitorData": <value>, and the web client's tracking parameter
+    {"key": "visitor_data", "value": <value>}.
+    """
+    found: List[str] = []
+    if isinstance(node, dict):
+        if node.get('key') == 'visitor_data' and 'value' in node:
+            found.append(str(node['value']))
+        for key, value in node.items():
+            if key == 'visitorData':
+                found.append(str(value))
+            found.extend(visitor_data_in(value))
+    elif isinstance(node, list):
+        for value in node:
+            found.extend(visitor_data_in(value))
+    return found
+
+
+def longest_string_in(node: Any) -> int:
+    """The length of the longest string value in a parsed response."""
+    if isinstance(node, dict):
+        return max((longest_string_in(value) for value in node.values()), default=0)
+    if isinstance(node, list):
+        return max((longest_string_in(value) for value in node), default=0)
+    return len(node) if isinstance(node, str) else 0
 
 
 # --- The corpus files ------------------------------------------------------
