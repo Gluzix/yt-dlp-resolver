@@ -345,6 +345,18 @@ def test_the_launcher_stops_at_the_first_bot_check() -> None:
     assert launch.stopped is not None and 'BotCheck' in launch.stopped
 
 
+def test_a_bot_check_stops_only_the_live_launcher() -> None:
+    # The offline tests ask YouTube nothing: a bot check met by a live test
+    # before them must not turn them into failures.
+    brake = harness.Brake(bot_check='ytres_cli met a bot check: BotCheck: not a bot')
+    live, offline = harness.Launcher(brake=brake), harness.Launcher(brake=brake, live=False)
+    with pytest.raises(harness.BotCheckStop):
+        live('ytres_cli', [*PYTHON, 'pass'])  # never started
+    assert offline('ytres_cli', [*PYTHON, 'pass']).exit_code == 0
+    assert live.starts == {} and offline.starts == {'ytres_cli': 1}
+    assert live.stopped is not None and offline.stopped is None
+
+
 # Stand-ins for a ytres_cli that dies or hangs: Python, never ytres_cli
 # itself, so that no test here makes a ytres program abort on purpose.
 @pytest.mark.parametrize('script, timeout, says', [

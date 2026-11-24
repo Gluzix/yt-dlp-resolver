@@ -323,25 +323,32 @@ def _ytres_died(done: Completed) -> Optional[str]:
 
 
 class Launcher:
-    """Starts every program of a run: paced, counted, timed out, and stopped by its Brake."""
+    """Starts every program of a run: paced, counted, timed out, and stopped by its Brake.
+
+    live: whether what it starts talks to YouTube. A bot check stops only the
+    live launchers; one behind the dead proxy asks YouTube nothing, so its
+    tests still run after one.
+    """
 
     def __init__(self, pacer: Optional[Pacer] = None, timeout: float = RUN_TIMEOUT_SECONDS,
-                 env: Optional[Mapping[str, str]] = None, brake: Optional[Brake] = None) -> None:
+                 env: Optional[Mapping[str, str]] = None, brake: Optional[Brake] = None,
+                 live: bool = True) -> None:
         self.pacer = pacer
         self.timeout = timeout
         self.env = env
         self.brake = brake if brake is not None else Brake()
+        self.live = live
         self.starts: Counter[str] = Counter()
 
     @property
     def stopped(self) -> Optional[str]:
         """Why this launcher starts nothing more, or None."""
-        return self.brake.halt or self.brake.bot_check
+        return self.brake.halt or (self.brake.bot_check if self.live else None)
 
     def __call__(self, name: str, command: Sequence[str], timeout: Optional[float] = None) -> Completed:
         if self.brake.halt:
             raise Halt(self.brake.halt)
-        if self.brake.bot_check:
+        if self.live and self.brake.bot_check:
             raise BotCheckStop(self.brake.bot_check)
         if self.pacer:
             self.pacer.wait()

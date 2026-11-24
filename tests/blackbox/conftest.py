@@ -133,7 +133,7 @@ def pytest_configure(config: pytest.Config) -> None:
         settings=settings,
         brake=brake,
         live_launcher=harness.Launcher(harness.Pacer(), brake=brake),
-        offline_launcher=harness.Launcher(env=_offline_environment(), brake=brake),
+        offline_launcher=harness.Launcher(env=_offline_environment(), brake=brake, live=False),
     )
 
 
