@@ -291,6 +291,14 @@ def ytdlp(pytestconfig: pytest.Config) -> harness.YtDlp:
 
 
 @pytest.fixture
+def dump_file(tmp_path: Path) -> Iterator[Path]:
+    """A path for a --dump, removed afterwards: a dump the scrubber missed would hold the address."""
+    path = tmp_path / 'dump.json'
+    yield path
+    path.unlink(missing_ok=True)
+
+
+@pytest.fixture
 def record(request: pytest.FixtureRequest) -> Callable[[str, str], Row]:
     """record(kind, name): the table row for a video, search or playlist, for the test to fill in."""
     state = request.config.stash[STATE]
