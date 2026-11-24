@@ -1,4 +1,4 @@
-"""Options, fixtures and the live gate of the black-box tests.
+"""Options, fixtures, the live gate and the end-of-run report of the black-box tests.
 
     pytest tests/blackbox                 the offline part: no request leaves the machine
     pytest tests/blackbox --live          everything; talks to YouTube, paced
@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +69,7 @@ class RunState:
     offline_launcher: harness.Launcher
     rows: Dict[Tuple[str, str], Row] = field(default_factory=dict)
     row_of_test: Dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
+    outcomes: Dict[str, str] = field(default_factory=dict)
     started: float = field(default_factory=time.monotonic)
 
 
@@ -155,7 +157,15 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Iterator[None]:
     outcome = yield
-    _redact_report(outcome.get_result())
+    report: pytest.TestReport = outcome.get_result()
+    _redact_report(report)
+    # The test's verdict for the table: failed if any phase failed, else how
+    # its call (or a setup that skipped it) ended.
+    outcomes = item.config.stash[STATE].outcomes
+    if report.failed:
+        outcomes[item.nodeid] = 'failed'
+    elif report.when == 'call' or report.skipped:
+        outcomes.setdefault(item.nodeid, report.outcome)
 
 
 def _redact_report(report: pytest.TestReport) -> None:
@@ -167,6 +177,65 @@ def _redact_report(report: pytest.TestReport) -> None:
         else:
             report.longrepr = harness.redact(str(report.longrepr))
     report.sections = [(title, harness.redact(content)) for title, content in report.sections]
+
+
+# --- The report ------------------------------------------------------------
+
+_KIND_ORDER = {'video': 0, 'search': 1, 'playlist': 2, 'dump': 3}
+
+
+def _verdict(outcomes: List[str]) -> str:
+    if 'failed' in outcomes:
+        return 'FAILED'
+    if outcomes and all(outcome == 'passed' for outcome in outcomes):
+        return 'ok'
+    return 'skipped' if 'passed' not in outcomes else 'partly skipped'
+
+
+def _seconds(value: Optional[float]) -> str:
+    return '-' if value is None else f'{value:.1f} s'
+
+
+def _cut(text: str, width: int) -> str:
+    return text if len(text) <= width else text[:width - 1] + '~'
+
+
+def report_lines(state: RunState) -> List[str]:
+    """The end-of-run table: one row per video, search and playlist, then the program starts."""
+    tests_of: Dict[Tuple[str, str], List[str]] = {}
+    for nodeid, keys in state.row_of_test.items():
+        for key in keys:
+            tests_of.setdefault(key, []).append(state.outcomes.get(nodeid, 'not run'))
+    lines = []
+    if state.rows:
+        lines.append(f'{"kind":<9}{"name":<38}{"ytres":<30}{"took":>7}  {"yt-dlp":<28}{"took":>7}  verdict')
+        # Grouped by kind in the plan's order; within a kind, as the tests ran.
+        ordered = sorted(state.rows.items(), key=lambda item: _KIND_ORDER.get(item[1].kind, len(_KIND_ORDER)))
+        for key, row in ordered:
+            lines.append(f'{row.kind:<9}{_cut(row.name, 37):<38}{_cut(row.ours, 29):<30}{_seconds(row.ours_seconds):>7}'
+                         f'  {_cut(row.theirs, 27):<28}{_seconds(row.theirs_seconds):>7}  {_verdict(tests_of.get(key, []))}')
+        lines.append('')
+    live = dict(state.live_launcher.starts)
+    offline = dict(state.offline_launcher.starts)
+    lines.append(f'programs started: live {live or "none"}; offline, behind the dead proxy, {offline or "none"}; '
+                 f'{time.monotonic() - state.started:.0f} s')
+    if state.brake.halt:
+        lines.append(f'RUN HALTED: {state.brake.halt}')
+    if state.brake.bot_check:
+        lines.append(f'LIVE REQUESTS STOPPED: {state.brake.bot_check}')
+    return [harness.redact(line) for line in lines]
+
+
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: pytest.Config) -> None:
+    state = config.stash.get(STATE, None)
+    if state is None:
+        return
+    terminalreporter.section('ytres black-box report')
+    # A title may hold characters the console's code page lacks; they become ?
+    # rather than end the run in an encoding error.
+    encoding = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    for line in report_lines(state):
+        terminalreporter.write_line(line.encode(encoding, 'replace').decode(encoding, 'replace'))
 
 
 # --- Fixtures --------------------------------------------------------------

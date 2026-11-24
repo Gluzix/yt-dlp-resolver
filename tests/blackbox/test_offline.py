@@ -367,6 +367,24 @@ def test_ytdlp_failing_halts_nothing() -> None:
     assert launch.stopped is None
 
 
+# --- The report ------------------------------------------------------------
+
+def test_the_report_table_gives_each_row_its_verdict() -> None:
+    import conftest
+    settings = conftest.Settings(False, Path('ytres_cli'), None, 'none')
+    brake = harness.Brake()
+    state = conftest.RunState(settings, brake, harness.Launcher(brake=brake), harness.Launcher(brake=brake))
+    state.rows[('video', 'dQw4w9WgXcQ')] = conftest.Row('video', 'dQw4w9WgXcQ', 'itag 251', 1.25, 'format 251', 3.0)
+    state.rows[('search', 'q')] = conftest.Row('search', 'q', f'Http: from {ADDRESS}')
+    state.row_of_test = {'a': [('video', 'dQw4w9WgXcQ')], 'b': [('video', 'dQw4w9WgXcQ'), ('search', 'q')]}
+    state.outcomes = {'a': 'passed', 'b': 'failed'}
+    lines = conftest.report_lines(state)
+    assert lines[1].startswith('video') and 'itag 251' in lines[1] and '1.2 s' in lines[1]
+    assert lines[1].endswith('FAILED') and lines[2].endswith('FAILED')
+    assert ADDRESS not in '\n'.join(lines)
+    assert lines[-1].startswith('programs started: live none')
+
+
 # --- The corpus files ------------------------------------------------------
 
 def write(tmp_path: Path, text: str) -> Path:
