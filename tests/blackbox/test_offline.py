@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pytest
 
@@ -274,6 +274,23 @@ def test_parse_ytdlp_failure_takes_the_last_error() -> None:
     stderr = '[youtube] x: Downloading\nERROR: first\nERROR: [youtube] x: Video unavailable\n'
     assert harness.parse_ytdlp_failure(stderr) == harness.Failure('yt-dlp', '[youtube] x: Video unavailable')
     assert harness.parse_ytdlp_failure('') == harness.Failure('yt-dlp', 'no output')
+
+
+def ytdlp_answer(value: Optional[harness.YtVideo], failure: Optional[harness.Failure]) -> harness.Answer[harness.YtVideo]:
+    return harness.Answer(value, failure, harness.Completed(('yt-dlp',), 0 if value else 1, '', '', 0.1))
+
+
+@pytest.mark.parametrize('value, failure, says', [
+    (harness.YtVideo('t', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', '251-drc'), None, 'format 251-drc'),
+    (None, harness.Failure('yt-dlp', '[youtube] EX_8ZjT2sO4: Sign in to confirm your age'),
+     'Sign in to confirm your age'),
+    (None, harness.Failure('yt-dlp', 'no output'), 'no output'),
+    (None, harness.Failure('NoAnswer', 'no answer in 120 s'), 'NoAnswer: no answer in 120 s'),
+], ids=['played', 'refused', 'refused without a prefix', 'timed out'])
+def test_what_ytdlp_said_for_the_report(value: Optional[harness.YtVideo], failure: Optional[harness.Failure],
+                                        says: str) -> None:
+    # The table's column is narrow: a refusal shows its reason, not the extractor's name before it.
+    assert harness.ytdlp_said(ytdlp_answer(value, failure)) == says
 
 
 # --- Pacing, the bot check and running a program ---------------------------

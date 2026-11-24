@@ -609,6 +609,25 @@ def parse_ytdlp_failure(stderr: str) -> Failure:
     return Failure('yt-dlp', lines[-1] if lines else 'no output')
 
 
+# What yt-dlp puts before the reason it refused a video: "[youtube] <id>: ".
+_YTDLP_PREFIX = re.compile(r'^\[[^\]]+\]\s+[^:\s]+:\s*')
+
+
+def ytdlp_said(answer: Answer[YtVideo]) -> str:
+    """What yt-dlp -f bestaudio said, for the report's narrow column: the format, or the reason it gave.
+
+    The reason loses the "[youtube] <id>: " before it, so that the column
+    shows "Sign in to confirm your age" rather than the extractor's name.
+    """
+    if answer.value is not None:
+        return f'format {answer.value.format_id}'
+    if answer.failure is None:
+        return 'no answer'
+    if answer.failure.code == 'yt-dlp':
+        return _YTDLP_PREFIX.sub('', answer.failure.message)
+    return str(answer.failure)
+
+
 def parse_ytdlp_video(stdout: str) -> YtVideo:
     lines = lines_of(stdout)
     if len(lines) != 3:
