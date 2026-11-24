@@ -1,7 +1,8 @@
 """Dumps: ytres_cli --dump for a video, a search and a playlist writes what README promises.
 
 A dump is a fixture to commit, so it must parse as JSON and hold no address
-but the placeholder 203.0.113.7 and no visitor data but FIXTURE. The video's
+but the placeholder 203.0.113.7 (no IPv6 one at all) and no visitor data
+but FIXTURE. The video's
 dump is the regression test for the scrubber crash of 2026-11-24: a real
 player response holds JSON strings far longer than the 1000 characters on
 which the old regular expressions threw, and ytres_cli aborted.
@@ -46,6 +47,8 @@ def check_dump(answer: harness.Answer[Any], dump: Path) -> Any:
         pytest.fail(f'the dump is not JSON: {error.msg} at line {error.lineno}, column {error.colno}')
     left_ipv4 = len(harness.foreign_ipv4_in(text))
     assert left_ipv4 == 0, f'the dump holds {left_ipv4} IPv4 address(es) other than {harness.PLACEHOLDER_ADDRESS}'
+    left_ipv6 = len(harness.foreign_ipv6_in(text))
+    assert left_ipv6 == 0, f'the dump holds {left_ipv6} IPv6 address(es)'
     left_parameters = len(harness.foreign_address_parameters_in(text))
     assert left_parameters == 0, f'the dump holds {left_parameters} ip= or /ip/ value(s) other than the placeholder'
     visitor = harness.visitor_data_in(response)

@@ -705,6 +705,14 @@ def foreign_ipv4_in(text: str) -> List[str]:
     return [address for address in ipv4_addresses_in(text) if address != PLACEHOLDER_ADDRESS]
 
 
+def foreign_ipv6_in(text: str) -> List[str]:
+    """Every IPv6-like address in text, wherever it stands (the placeholder is IPv4, so none is allowed).
+
+    Four or more colon-separated hex groups: a length such as 1:02:03 is no match.
+    """
+    return _IPV6.findall(text)
+
+
 def foreign_address_parameters_in(text: str) -> List[str]:
     """Every address after an ip= or /ip/ in text but the placeholder: IPv6 ones too."""
     return [match.group(1) for match in _DUMP_ADDRESS.finditer(text) if match.group(1) != PLACEHOLDER_ADDRESS]

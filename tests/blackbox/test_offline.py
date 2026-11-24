@@ -390,6 +390,13 @@ def test_a_scrubbed_dump_holds_no_foreign_address() -> None:
             '"title":"Live, 23.06.2024"}')
     assert harness.foreign_ipv4_in(text) == []
     assert harness.foreign_address_parameters_in(text) == []
+    assert harness.foreign_ipv6_in(text) == []
+
+
+def test_a_bare_ipv6_address_in_a_dump_is_caught() -> None:
+    compressed = ':'.join(['2001', 'db8', '4f2a', '1c00', '', '17'])
+    text = f'{{"remoteHost":"{ADDRESS6}","peer":"{compressed}","length":"1:02:03","at":"10:00:00"}}'
+    assert len(harness.foreign_ipv6_in(text)) == 2
 
 
 @pytest.mark.parametrize('text', [
