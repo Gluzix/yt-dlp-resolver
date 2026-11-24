@@ -75,9 +75,12 @@ def check_rows(rows: List[harness.SearchRow]) -> None:
 @pytest.mark.parametrize('case', of_kind('common'), ids=ids_of(of_kind('common')))
 def test_a_common_query_fills_max(case: harness.SearchCase, max: int, ytres: harness.Ytres,
                                   record: Callable[[str, str], 'Row']) -> None:
+    # Both --max values belong to the query's row, so that either failing
+    # shows there; the row shows the two-page answer, the one compared.
+    row = record('search', case.query)
     answer = ytres.search(case.query, max)
     if max == TWO_PAGES:
-        record('search', case.query).ytres(said(answer), answer.seconds)
+        row.ytres(said(answer), answer.seconds)
     assert answer.ok, f'{case.purpose}: ytres failed: {answer.failure}'
     rows = answer.value or []
     assert len(rows) == max, f'{case.purpose}: {len(rows)} rows for --max {max}'
