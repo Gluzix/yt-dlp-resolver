@@ -398,3 +398,68 @@ def test_read_playlist_corpus_names_a_bad_line(tmp_path: Path, line: str) -> Non
     ('7', 7, True), ('7', 8, False), ('150+', 450, True), ('150+', 149, False), ('-', 0, True)])
 def test_count_rules(rule: str, count: int, holds: bool) -> None:
     assert harness.CountRule.parse(rule).holds(count) is holds
+
+
+# --- ytres_cli's command line ----------------------------------------------
+#
+# Every answer below comes back before ytres_cli makes a request.
+
+USAGE_FIRST_LINE = 'usage: ytres_cli <url-or-id>'
+
+
+@pytest.mark.parametrize('arguments', [
+    pytest.param([], id='no arguments'),
+    pytest.param(['--bogus', 'x'], id='an unknown option'),
+    pytest.param(['--search', 'a', '--search', 'b'], id='a repeated option'),
+    pytest.param(['dQw4w9WgXcQ', '--search', 'a'], id='two modes at once'),
+    pytest.param(['--search', 'a', '--playlist', 'PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk'], id='search and playlist'),
+    pytest.param(['--search', 'a', '--max'], id='--max with no value'),
+    pytest.param(['--search', 'a', '--max', 'five'], id='--max not a number'),
+    pytest.param(['--search', 'a', '--max', '-3'], id='--max negative'),
+    pytest.param(['dQw4w9WgXcQ', '--max', '5'], id='--max with a resolve'),
+    pytest.param(['--search', 'a', '--formats'], id='--formats with a search'),
+])
+def test_a_bad_command_line_gets_the_usage(offline_ytres: harness.Ytres, arguments: List[str]) -> None:
+    done = offline_ytres.raw(arguments)
+    assert done.exit_code == 1
+    assert done.stdout == ''
+    assert done.stderr.startswith(USAGE_FIRST_LINE), done.stderr
+
+
+@pytest.mark.parametrize('arguments, message', [
+    pytest.param(['notalink'], 'Not a YouTube video link or id', id='not a YouTube link'),
+    pytest.param(['https://example.com/watch?v=dQw4w9WgXcQ'], 'Not a YouTube video link or id', id='another site'),
+    pytest.param(['--search', ''], 'query', id='an empty search'),
+    pytest.param(['--search', 'x', '--max', '0'], 'at least one video', id='a search for no videos'),
+    pytest.param(['--playlist', 'RDdQw4w9WgXcQ'], 'only public playlists', id='a mix'),
+    pytest.param(['--playlist', 'PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk', '--max', '0'], 'at least one video',
+                 id='a playlist for no videos'),
+])
+def test_bad_input_is_refused_before_any_request(offline_ytres: harness.Ytres, arguments: List[str],
+                                                 message: str) -> None:
+    done = offline_ytres.raw(arguments)
+    assert done.exit_code == 1
+    assert done.stdout == ''
+    failure = harness.parse_failure(done.stderr)
+    assert failure is not None and failure.code == 'BadInput', done.stderr
+    # "<Error>: <message>" is the last line: nothing comes after it.
+    assert harness.lines_of(done.stderr)[-1] == f'BadInput: {failure.message}'
+    assert message.lower() in failure.message.lower()
+
+
+def test_a_dump_of_bad_input_says_there_is_nothing_to_dump(offline_ytres: harness.Ytres, tmp_path: Path) -> None:
+    dump = tmp_path / 'dump.json'
+    answer = offline_ytres.resolve('notalink', dump=dump)
+    assert answer.code == 'BadInput'
+    assert 'No response to dump' in answer.completed.stderr
+    assert not dump.exists()
+
+
+def test_the_network_trap_catches_a_request(offline_ytres: harness.Ytres) -> None:
+    """The proof that the offline tests send nothing: a request ytres_cli does make fails here.
+
+    The dead proxy is on this machine, so this run reaches no further than
+    the loopback interface either.
+    """
+    answer = offline_ytres.resolve('dQw4w9WgXcQ')
+    assert answer.code == 'Network', str(answer.failure)
