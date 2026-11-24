@@ -473,18 +473,46 @@ def test_read_search_corpus_names_a_bad_line(tmp_path: Path, line: str) -> None:
 
 
 def test_read_playlist_corpus(tmp_path: Path) -> None:
-    path = write(tmp_path, 'https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLx  Ok  100  150+  # a link\n'
-                           'PLmissing  Unavailable  5  -\n')
-    first, second = harness.read_playlist_corpus(path)
-    assert (first.target, first.expected, first.max, str(first.count)) == (
-        'https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLx', 'Ok', 100, '150+')
-    assert (second.expected, second.max, second.count.value) == ('Unavailable', 5, None)
+    path = write(tmp_path, 'https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLx  Ok  100  150+  exact  # a link\n'
+                           'RDCLAKx  Ok  100  30+  curated\n'
+                           'PLmissing  Unavailable  5  -  -\n')
+    first, second, third = harness.read_playlist_corpus(path)
+    assert (first.target, first.expected, first.max, str(first.count), first.compare) == (
+        'https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLx', 'Ok', 100, '150+', 'exact')
+    assert second.compare == 'curated'
+    assert (third.expected, third.max, third.count.value, third.compare) == ('Unavailable', 5, None, '-')
 
 
-@pytest.mark.parametrize('line', ['PLx Ok 5\n', 'PLx Fine 5 7\n', 'PLx Ok 0 7\n', 'PLx Ok 5 seven\n'])
+@pytest.mark.parametrize('line', ['PLx Ok 5 7\n', 'PLx Fine 5 7 exact\n', 'PLx Ok 0 7 exact\n',
+                                  'PLx Ok 5 seven exact\n', 'PLx Ok 5 7 roughly\n', 'PLx Ok 5 7 -\n',
+                                  'PLx Unavailable 5 - exact\n'])
 def test_read_playlist_corpus_names_a_bad_line(tmp_path: Path, line: str) -> None:
     with pytest.raises(harness.CorpusError, match='corpus.txt:1'):
         harness.read_playlist_corpus(write(tmp_path, line))
+
+
+def made_up_ids(count: int, prefix: str = 'v') -> List[str]:
+    return [f'{prefix}{number:010d}' for number in range(count)]
+
+
+def test_a_curated_listing_may_differ_in_a_late_slot() -> None:
+    # As seen for The Hit List: its 50th of 52 slots held another video for each program.
+    import test_playlist_live
+    theirs = made_up_ids(52)
+    mine = theirs[:49] + ['x0000000000'] + theirs[50:]
+    assert test_playlist_live.curated_difference(list(mine), theirs) is None
+
+
+@pytest.mark.parametrize('mine, says', [
+    pytest.param(made_up_ids(52)[:51], '51 ids, yt-dlp 52', id='one fewer'),
+    pytest.param(made_up_ids(52)[:3] + made_up_ids(52)[4:] + ['x0000000000'], 'differ from entry 4',
+                 id='one dropped near the top'),
+    pytest.param(made_up_ids(46) + made_up_ids(6, 'x'), 'only 46 of 52', id='six late slots differ'),
+])
+def test_a_curated_listing_still_fails_beyond_that(mine: List[str], says: str) -> None:
+    import test_playlist_live
+    why = test_playlist_live.curated_difference(list(mine), made_up_ids(52))
+    assert why is not None and says in why
 
 
 @pytest.mark.parametrize('rule, count, holds', [

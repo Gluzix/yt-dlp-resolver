@@ -838,12 +838,18 @@ class CountRule:
         return '-' if self.value is None else f'{self.value}{"+" if self.at_least else ""}'
 
 
+# How a listing is compared with yt-dlp's: see corpus_playlists.txt. "-" for
+# a line that lists nothing.
+PLAYLIST_COMPARES = ('exact', 'curated', '-')
+
+
 @dataclass(frozen=True)
 class PlaylistCase:
     target: str
     expected: str  # the Error ytres_cli should report
     max: int
     count: CountRule
+    compare: str  # one of PLAYLIST_COMPARES
     purpose: str
 
 
@@ -851,16 +857,20 @@ def read_playlist_corpus(path: Path = PLAYLIST_CORPUS) -> List[PlaylistCase]:
     cases = []
     for line in read_corpus_lines(path):
         fields = line.body.split()
-        if len(fields) != 4:
-            raise CorpusError(f'{line.where}: expected a target, an Error, a max and a count, got {line.body!r}')
-        target, expected, max_text, count_text = fields
+        if len(fields) != 5:
+            raise CorpusError(f'{line.where}: expected a target, an Error, a max, a count and a comparison, '
+                              f'got {line.body!r}')
+        target, expected, max_text, count_text, compare = fields
         if expected not in ERROR_NAMES:
             raise CorpusError(f'{line.where}: {expected!r} is no Error')
+        if compare not in PLAYLIST_COMPARES or (compare == '-') != (expected != 'Ok'):
+            raise CorpusError(f'{line.where}: an Ok line is compared "exact" or "curated", any other "-"; '
+                              f'got {compare!r}')
         if not max_text.isdigit() or int(max_text) == 0:
             raise CorpusError(f'{line.where}: the max must be a positive number, got {max_text!r}')
         try:
             count = CountRule.parse(count_text)
         except ValueError as error:
             raise CorpusError(f'{line.where}: {error}') from None
-        cases.append(PlaylistCase(target, expected, int(max_text), count, line.purpose))
+        cases.append(PlaylistCase(target, expected, int(max_text), count, compare, line.purpose))
     return cases

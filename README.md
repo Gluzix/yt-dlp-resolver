@@ -318,7 +318,9 @@ resolves every video of `tests/corpus.txt`, runs the searches of
 `tests/blackbox/corpus_search.txt` and lists the playlists of
 `tests/blackbox/corpus_playlists.txt`, compares each with yt-dlp (`-f
 bestaudio`; `ytsearch20:`, tolerantly, since YouTube orders the two
-searches a little differently; `--flat-playlist`, exactly), and checks that
+searches a little differently; `--flat-playlist`, exactly, but for a
+curated playlist whose late slots YouTube serves differently from one
+request to the next), and checks that
 `--dump` writes scrubbed JSON for a video, a search and a playlist. A live
 run starts `ytres_cli` 22 times and yt-dlp 9 times, at least 1.5 seconds
 apart, and takes about a minute.

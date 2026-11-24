@@ -1,9 +1,12 @@
 """Playlists: the lines of corpus_playlists.txt through ytres_cli, and the ones that list against yt-dlp.
 
-The comparison with yt-dlp --flat-playlist is exact: the same ids in the
-same order, the same title and the same count. Both read the same browse
-answers; the only difference allowed is the one the library makes on
-purpose, leaving out the videos YouTube lists as private or deleted.
+The comparison with yt-dlp --flat-playlist is exact for an ordinary
+playlist: the same ids in the same order, the same title and the same
+count. Both read the same browse answers; the only difference allowed is
+the one the library makes on purpose, leaving out the videos YouTube lists
+as private or deleted. A curated playlist (its corpus line says so) is
+served a little differently from one request to the next, so its ids are
+compared as a long common start and a large overlap instead.
 """
 
 from __future__ import annotations
@@ -40,6 +43,28 @@ def first_difference(mine: List[Optional[str]], theirs: List[str]) -> Optional[i
     for index in range(max(len(mine), len(theirs))):
         if index >= len(mine) or index >= len(theirs) or mine[index] != theirs[index]:
             return index
+    return None
+
+
+# A curated line's ids: as many as yt-dlp's, the first CURATED_SAME_ORDER in
+# the same order, and at least CURATED_SHARED of them shared. The Hit List
+# was seen on 2026-11-24 with its 50th of 52 slots holding another video for
+# each program; a dropped, added or reordered video near its top still fails.
+CURATED_SAME_ORDER = 40
+CURATED_SHARED = 0.95
+
+
+def curated_difference(mine: List[Optional[str]], theirs: List[str]) -> Optional[str]:
+    """Why two listings of a curated playlist differ beyond what YouTube's re-curating explains, or None."""
+    if len(mine) != len(theirs):
+        return f'{len(mine)} ids, yt-dlp {len(theirs)}'
+    differ = first_difference(mine[:CURATED_SAME_ORDER], theirs[:CURATED_SAME_ORDER])
+    if differ is not None:
+        return (f'the ids differ from entry {differ + 1}, within the first {CURATED_SAME_ORDER}: '
+                f'ytres {mine[differ:differ + 5]}, yt-dlp {theirs[differ:differ + 5]}')
+    shared = len(set(mine) & set(theirs))
+    if shared < CURATED_SHARED * len(theirs):
+        return f'only {shared} of {len(theirs)} ids shared, want {CURATED_SHARED:.0%}'
     return None
 
 
@@ -102,10 +127,15 @@ def test_ytres_lists_what_ytdlp_lists(case: harness.PlaylistCase, ytres: harness
         # Hidden videos took places in yt-dlp's window: ytres went on past
         # them, so only as many as yt-dlp saw can be compared.
         my_ids = my_ids[:len(their_ids)]
-    differ = first_difference(my_ids, their_ids)
-    if differ is not None:
-        pytest.fail(f'{case.purpose}: the ids differ from entry {differ + 1}: ytres {my_ids[differ:differ + 5]}, '
-                    f'yt-dlp {their_ids[differ:differ + 5]} ({len(my_ids)} and {len(their_ids)} ids)')
+    if case.compare == 'curated':
+        why = curated_difference(my_ids, their_ids)
+        if why is not None:
+            pytest.fail(f'{case.purpose}: {why}')
+    else:
+        differ = first_difference(my_ids, their_ids)
+        if differ is not None:
+            pytest.fail(f'{case.purpose}: the ids differ from entry {differ + 1}: ytres {my_ids[differ:differ + 5]}, '
+                        f'yt-dlp {their_ids[differ:differ + 5]} ({len(my_ids)} and {len(their_ids)} ids)')
     assert mine.title == other.title, f'title: ytres {mine.title!r}, yt-dlp {other.title!r}'
     if other.count is not None:
         assert mine.count == other.count, f'count: ytres {mine.count}, yt-dlp {other.count}'

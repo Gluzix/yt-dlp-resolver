@@ -1,19 +1,28 @@
 # The live playlists of tests/blackbox/test_playlist_live.py and test_dump_live.py.
 # One per line: what ytres_cli --playlist is given, the Error it should report
-# (Ok for one that lists), the --max to ask for, and what the count YouTube
-# gives must be (N exactly, N+ at least, - anything); after a # what the line
-# is for. An Ok line also wants at least min(max, N) entries and no more than
-# max, every id valid and distinct, every entry titled, and yt-dlp
-# --flat-playlist to list the same ids in the same order, with the same title
-# and count. An Unavailable line wants YouTube's "does not exist".
+# (Ok for one that lists), the --max to ask for, what the count YouTube gives
+# must be (N exactly, N+ at least, - anything), and how the listing is
+# compared with yt-dlp --flat-playlist's (- for a line that lists nothing);
+# after a # what the line is for. An Ok line also wants at least min(max, N)
+# entries and no more than max, every id valid and distinct, every entry
+# titled, and the same playlist title and count as yt-dlp. Its ids are
+#   exact    the same ids as yt-dlp's, in the same order
+#   curated  as many ids as yt-dlp's, the first 40 in the same order and at
+#            least 95% of them shared: for a playlist YouTube re-curates, whose
+#            later slots may hold another video from one request to the next
+# An Unavailable line wants YouTube's "does not exist".
 #
 # The ids come from the fixtures (tests/fixtures/playlist_*.json, README
 # "Fixtures"). Confirmed on 2026-11-24 with ytres_cli and yt-dlp 2026.08.19:
-# 7 of 7, 150 of 150 and 52 of 52 ids the same, in the same order, with the
-# same titles and counts (7, 450 and 52). Playlists go away; when one does,
-# find another of its kind rather than change what the line expects.
-PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk           Ok           50   7     # small: 7 videos on one page, the new lockupViewModel layout (fixture playlist_small.json)
-PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4           Ok           150  150+  # long: a podcast of 450 videos (447 in its fixtures), 150 of them over two pages
-https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4  Ok  100  150+  # the same playlist given as a watch?v=...&list=... link: the list= is what counts
-RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs  Ok           100  30+   # YouTube Music's curated "The Hit List" (fixture playlist_music_curated.json, tests/playlist_test.cpp): an RD id that is no mix, 52 videos on 2026-11-24
-PLaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa           Unavailable  5    -     # no such playlist: "The playlist does not exist." on 2026-11-24
+# 7 of 7 and 150 of 150 ids the same, in the same order, with the same titles
+# and counts (7 and 450). The Hit List matched 52 of 52 in some runs; in
+# others one slot near its end (the 50th) held a different video for each
+# program, either way round, with the title and the count of 52 the same:
+# YouTube serves that slot differently from one request to the next, so the
+# line is "curated". Playlists go away; when one does, find another of its
+# kind rather than change what the line expects.
+PLC2bGavj05vj1BDIQbhCDiXywCU4_P9Pk           Ok           50   7     exact    # small: 7 videos on one page, the new lockupViewModel layout (fixture playlist_small.json)
+PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4           Ok           150  150+  exact    # long: a podcast of 450 videos (447 in its fixtures), 150 of them over two pages
+https://www.youtube.com/watch?v=v1X9Fqs5a14&list=PLrAXtmErZgOdP_8GztsuKi9nrraNbKKp4  Ok  100  150+  exact  # the same playlist given as a watch?v=...&list=... link: the list= is what counts
+RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs  Ok           100  30+   curated  # YouTube Music's curated "The Hit List" (fixture playlist_music_curated.json, tests/playlist_test.cpp): an RD id that is no mix, 52 videos on 2026-11-24
+PLaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa           Unavailable  5    -     -        # no such playlist: "The playlist does not exist." on 2026-11-24
