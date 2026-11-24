@@ -2,7 +2,8 @@
 
 Implementation plan for whoever codes it. Everything needed is in this file,
 `README.md` (how the harness is run and what it prints) and
-`docs/innertube-notes.md`. Branch: `tests/python-blackbox` off `master`.
+`docs/innertube-notes.md`. Branch: `tests/python-blackbox`, stacked on
+`fix/dump-scrub` (the dump scrubber's fix, which the dump tests need).
 Kamil merges through pull requests; nothing is pushed by anyone but him.
 
 ## What this is, and what it is not
