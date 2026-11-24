@@ -32,9 +32,19 @@ VIDEO_CORPUS = ROOT / 'tests' / 'corpus.txt'
 SEARCH_CORPUS = Path(__file__).resolve().parent / 'corpus_search.txt'
 PLAYLIST_CORPUS = Path(__file__).resolve().parent / 'corpus_playlists.txt'
 
-# Long enough for yt-dlp listing 150 playlist entries on a slow line; a run
-# that takes longer is stuck, not slow.
+# How long a program may run before it is killed. yt-dlp lists 150 playlist
+# entries in a few seconds on a good line; two minutes is stuck, not slow.
 RUN_TIMEOUT_SECONDS = 120.0
+
+# ytres_cli answers in a second or two; its own request timeouts end any
+# call well inside a minute. One still running after that is hung, or
+# waiting on a window nobody will close, and the whole run stops (Halt).
+YTRES_TIMEOUT_SECONDS = 60.0
+
+# The exit codes ytres_cli's contract allows: 0, or 1 with "<Error>: ...".
+# Anything else (3 for an abort(), a negative NTSTATUS for a crash) is the
+# program dying, and the whole run stops.
+YTRES_EXIT_CODES = (0, 1)
 
 # The least time between one program start and the next in a live run.
 PACE_SECONDS = 1.5
@@ -169,22 +179,59 @@ def lines_of(text: str) -> List[str]:
     return text.split('\n')[:-1] if text.endswith('\n') else ([text] if text else [])
 
 
+# How long killing a program and reading what it left may take; taskkill is
+# a program too, and nothing here waits without a limit.
+KILL_TIMEOUT_SECONDS = 30.0
+
+
 def kill_tree(process: 'subprocess.Popen[bytes]') -> None:
     """Kills process and whatever it started."""
     if sys.platform == 'win32':
         # yt-dlp.exe is a PyInstaller launcher that runs yt-dlp as its child.
         # Killing the launcher alone leaves the child holding the pipes, and
         # reading them then waits for as long as the child lives.
-        subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], capture_output=True, check=False)
+        try:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], capture_output=True, check=False,
+                           timeout=KILL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        process.kill()  # in case taskkill could not; harmless when it did
     else:
         # The process leads a session of its own (see run()), so its group
         # is it and its children.
-        os.killpg(process.pid, signal.SIGKILL)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+_SEM_FAILCRITICALERRORS = 0x0001
+_SEM_NOGPFAULTERRORBOX = 0x0002
+_SEM_NOOPENFILEERRORBOX = 0x8000
+
+
+def quiet_crashes() -> None:
+    """On Windows, no program this process starts may show a crash window.
+
+    A child inherits its parent's error mode. With these flags a crash in
+    ytres_cli or yt-dlp ends the program with an exit code instead of
+    Windows Error Reporting's "has stopped working" window, which would sit
+    on the owner's screen until someone closed it. ytres_cli's own Debug
+    reports (assertions, abort()) already go to stderr; this covers what
+    the C runtime does not see, such as an access violation.
+    """
+    if sys.platform != 'win32':
+        return
+    import ctypes
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    wanted = _SEM_FAILCRITICALERRORS | _SEM_NOGPFAULTERRORBOX | _SEM_NOOPENFILEERRORBOX
+    kernel32.SetErrorMode(kernel32.GetErrorMode() | wanted)
 
 
 def run(command: Sequence[str], timeout: float = RUN_TIMEOUT_SECONDS,
         env: Optional[Mapping[str, str]] = None) -> Completed:
-    """Runs command without a shell and waits up to timeout seconds for it."""
+    """Runs command without a shell and waits up to timeout seconds for it; past that it is killed."""
+    quiet_crashes()
     arguments = [str(part) for part in command]
     extra = {} if sys.platform == 'win32' else {'start_new_session': True}
     start = time.monotonic()
@@ -195,8 +242,13 @@ def run(command: Sequence[str], timeout: float = RUN_TIMEOUT_SECONDS,
         code: Optional[int] = process.returncode
     except subprocess.TimeoutExpired:
         kill_tree(process)
-        stdout, stderr = process.communicate()
         code = None
+        try:
+            stdout, stderr = process.communicate(timeout=KILL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            # Something outside the tree still holds the pipes: give up on
+            # what it printed rather than wait for it.
+            stdout, stderr = b'', b''
     return Completed(tuple(arguments), code, _decode(stdout), _decode(stderr), time.monotonic() - start)
 
 
@@ -244,28 +296,65 @@ class BotCheckStop(Exception):
     """YouTube asked for proof that we are no bot: every live request stops here."""
 
 
+class Halt(Exception):
+    """ytres_cli hung or died: no program is started again in this run."""
+
+
+@dataclass
+class Brake:
+    """Why a run stopped starting programs, shared by every launcher of the run.
+
+    bot_check stops the live requests only; halt stops everything, since a
+    ytres_cli that hangs or dies once would only do it again - and a hung
+    one may be a window on the owner's screen.
+    """
+    bot_check: Optional[str] = None
+    halt: Optional[str] = None
+
+
+def _ytres_died(done: Completed) -> Optional[str]:
+    """Why a ytres_cli run counts as hung or dead, or None for an answer within its contract."""
+    if done.exit_code is None:
+        return f'ytres_cli was still running after {done.seconds:.0f} s and was killed (a hang, or a window?)'
+    if done.exit_code not in YTRES_EXIT_CODES:
+        last = (lines_of(done.stderr) or ['nothing on stderr'])[-1]
+        return redact(f'ytres_cli exited with code {done.exit_code}, outside its contract: {last}')
+    return None
+
+
 class Launcher:
-    """Starts every program of a run: paced, counted, and stopped at the first bot check."""
+    """Starts every program of a run: paced, counted, timed out, and stopped by its Brake."""
 
     def __init__(self, pacer: Optional[Pacer] = None, timeout: float = RUN_TIMEOUT_SECONDS,
-                 env: Optional[Mapping[str, str]] = None) -> None:
+                 env: Optional[Mapping[str, str]] = None, brake: Optional[Brake] = None) -> None:
         self.pacer = pacer
         self.timeout = timeout
         self.env = env
+        self.brake = brake if brake is not None else Brake()
         self.starts: Counter[str] = Counter()
-        self.stopped: Optional[str] = None
 
-    def __call__(self, name: str, command: Sequence[str]) -> Completed:
-        if self.stopped:
-            raise BotCheckStop(self.stopped)
+    @property
+    def stopped(self) -> Optional[str]:
+        """Why this launcher starts nothing more, or None."""
+        return self.brake.halt or self.brake.bot_check
+
+    def __call__(self, name: str, command: Sequence[str], timeout: Optional[float] = None) -> Completed:
+        if self.brake.halt:
+            raise Halt(self.brake.halt)
+        if self.brake.bot_check:
+            raise BotCheckStop(self.brake.bot_check)
         if self.pacer:
             self.pacer.wait()
         self.starts[name] += 1
-        done = run(command, self.timeout, self.env)
+        done = run(command, timeout if timeout is not None else self.timeout, self.env)
+        died = _ytres_died(done) if name == 'ytres_cli' else None
+        if died:
+            self.brake.halt = died
+            raise Halt(died)
         reason = bot_check_in(done.stderr)
         if reason:
-            self.stopped = f'{name} met a bot check: {reason}'
-            raise BotCheckStop(self.stopped)
+            self.brake.bot_check = f'{name} met a bot check: {reason}'
+            raise BotCheckStop(self.brake.bot_check)
         return done
 
 
@@ -423,7 +512,7 @@ def answer_from(completed: Completed, parse: Callable[[str], T], partial: bool) 
     playlist that failed on a later page prints what it read first).
     """
     if completed.exit_code is None:
-        return Answer(None, Failure('NoAnswer', f'no answer in {RUN_TIMEOUT_SECONDS:.0f} s'), completed)
+        return Answer(None, Failure('NoAnswer', f'no answer in {completed.seconds:.0f} s'), completed)
     failure = None
     if completed.exit_code != 0:
         failure = parse_failure(completed.stderr) or Failure(
@@ -447,7 +536,7 @@ class Ytres:
 
     def raw(self, arguments: Sequence[str]) -> Completed:
         """ytres_cli with these arguments, as it finished, for the tests of its command line."""
-        return self.launch('ytres_cli', [str(self.cli), *arguments])
+        return self.launch('ytres_cli', [str(self.cli), *arguments], YTRES_TIMEOUT_SECONDS)
 
     @staticmethod
     def _dump(dump: Optional[Path]) -> List[str]:
@@ -563,9 +652,9 @@ class YtDlp:
         self.launch = launch
 
     def _run(self, arguments: Sequence[str], parse: Callable[[str], T]) -> Answer[T]:
-        completed = self.launch('yt-dlp', [str(self.exe), *self.COMMON, *arguments])
+        completed = self.launch('yt-dlp', [str(self.exe), *self.COMMON, *arguments], RUN_TIMEOUT_SECONDS)
         if completed.exit_code is None:
-            return Answer(None, Failure('NoAnswer', f'no answer in {RUN_TIMEOUT_SECONDS:.0f} s'), completed)
+            return Answer(None, Failure('NoAnswer', f'no answer in {completed.seconds:.0f} s'), completed)
         if completed.exit_code != 0:
             return Answer(None, parse_ytdlp_failure(completed.stderr), completed)
         try:

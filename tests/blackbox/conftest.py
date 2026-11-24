@@ -7,7 +7,8 @@
 
 Live tests carry the `live` marker (pytestmark in their module). Without
 --live they are skipped; with it, the first bot check skips every live test
-after it.
+after it. A ytres_cli that hangs or dies skips every test after it, live or
+not (harness.Halt).
 """
 
 from __future__ import annotations
@@ -24,10 +25,11 @@ import pytest
 
 import harness
 
-# A proxy nobody listens on. ytres_cli's libcurl honours HTTPS_PROXY, so in
-# an offline run any request it tried would fail there, on this machine,
-# instead of reaching YouTube - and the test that tried would fail with
-# Network. test_offline.py proves the trap holds.
+# A proxy nobody listens on. ytres_cli's libcurl honours HTTPS_PROXY (the
+# library sets no proxy of its own), so in an offline run any request it
+# tried would fail there, on this machine, instead of reaching YouTube - and
+# the test that tried would fail with Network. test_offline.py proves the
+# trap holds.
 DEAD_PROXY = 'http://127.0.0.1:9'
 _PROXY_VARIABLES = ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY')
 
@@ -59,8 +61,9 @@ class Row:
 
 @dataclass
 class RunState:
-    """What one pytest run keeps: the launchers, and the rows tests recorded."""
+    """What one pytest run keeps: the launchers, the rows tests recorded and how each test ended."""
     settings: Settings
+    brake: harness.Brake
     live_launcher: harness.Launcher
     offline_launcher: harness.Launcher
     rows: Dict[Tuple[str, str], Row] = field(default_factory=dict)
@@ -123,10 +126,12 @@ def pytest_configure(config: pytest.Config) -> None:
     settings = _settings(config)
     if not settings.live:
         _forbid_sockets()
+    brake = harness.Brake()
     config.stash[STATE] = RunState(
         settings=settings,
-        live_launcher=harness.Launcher(harness.Pacer()),
-        offline_launcher=harness.Launcher(env=_offline_environment()),
+        brake=brake,
+        live_launcher=harness.Launcher(harness.Pacer(), brake=brake),
+        offline_launcher=harness.Launcher(env=_offline_environment(), brake=brake),
     )
 
 
@@ -140,9 +145,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    stopped = item.config.stash[STATE].live_launcher.stopped
-    if stopped and item.get_closest_marker('live'):
-        pytest.skip(f'live requests stopped: {stopped}')
+    brake = item.config.stash[STATE].brake
+    if brake.halt:
+        pytest.skip(f'run halted: {brake.halt}')
+    if brake.bot_check and item.get_closest_marker('live'):
+        pytest.skip(f'live requests stopped: {brake.bot_check}')
 
 
 @pytest.hookimpl(hookwrapper=True)

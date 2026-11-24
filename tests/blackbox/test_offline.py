@@ -6,6 +6,7 @@ conftest.py), so a request it should not have made fails on this machine.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import List
@@ -339,6 +340,31 @@ def test_the_launcher_stops_at_the_first_bot_check() -> None:
         launch('ytres_cli', [*PYTHON, 'pass'])  # never started
     assert launch.starts == {'ytres_cli': 1}
     assert launch.stopped is not None and 'BotCheck' in launch.stopped
+
+
+# Stand-ins for a ytres_cli that dies or hangs: Python, never ytres_cli
+# itself, so that no test here makes a ytres program abort on purpose.
+@pytest.mark.parametrize('script, timeout, says', [
+    pytest.param('import sys; sys.stderr.write("abort() has been called\\n"); sys.exit(3)', 30.0,
+                 'code 3, outside its contract: abort() has been called', id='an abort'),
+    pytest.param('import time; time.sleep(60)', 1.0, 'still running', id='a hang'),
+])
+def test_a_ytres_cli_that_dies_or_hangs_halts_every_launcher(script: str, timeout: float, says: str) -> None:
+    brake = harness.Brake()
+    live, offline = harness.Launcher(brake=brake), harness.Launcher(brake=brake)
+    with pytest.raises(harness.Halt, match=re.escape(says)):
+        live('ytres_cli', [*PYTHON, script], timeout)
+    for launch in (live, offline):
+        with pytest.raises(harness.Halt):
+            launch('yt-dlp', [*PYTHON, 'pass'])  # never started
+    assert live.starts == {'ytres_cli': 1} and not offline.starts
+
+
+def test_ytdlp_failing_halts_nothing() -> None:
+    launch = harness.Launcher()
+    done = launch('yt-dlp', [*PYTHON, 'import sys; sys.exit(2)'])
+    assert done.exit_code == 2
+    assert launch.stopped is None
 
 
 # --- The corpus files ------------------------------------------------------
