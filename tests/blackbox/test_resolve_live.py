@@ -32,8 +32,9 @@ def said(answer: harness.Answer[harness.Video]) -> str:
 @pytest.mark.parametrize('case', CASES, ids=[case.video_id for case in CASES])
 def test_ytres_answers_as_the_corpus_expects(case: harness.VideoCase, ytres: harness.Ytres,
                                              record: Callable[[str, str], Row]) -> None:
+    row = record('video', case.video_id)
     answer = ytres.resolve(case.video_id)
-    record('video', case.video_id).ytres(said(answer), answer.seconds)
+    row.ytres(said(answer), answer.seconds)
     assert answer.code == case.expected, (
         f'{case.purpose}: ytres said {answer.failure or "Ok"}, the corpus expects {case.expected}')
     if case.expected != 'Ok':
@@ -57,9 +58,9 @@ def test_ytres_answers_as_the_corpus_expects(case: harness.VideoCase, ytres: har
 @pytest.mark.parametrize('case', PLAYING, ids=[case.video_id for case in PLAYING])
 def test_ytres_picks_what_ytdlp_picks(case: harness.VideoCase, ytres: harness.Ytres, ytdlp: harness.YtDlp,
                                       record: Callable[[str, str], Row]) -> None:
+    row = record('video', case.video_id)
     ours = ytres.resolve(case.video_id)
     theirs = ytdlp.best_audio(case.video_id)
-    row = record('video', case.video_id)
     row.ytres(said(ours), ours.seconds)
     row.ytdlp(f'format {theirs.value.format_id}' if theirs.value else str(theirs.failure), theirs.seconds)
     assert ours.ok and ours.value is not None, f'{case.purpose}: ytres failed: {ours.failure}'

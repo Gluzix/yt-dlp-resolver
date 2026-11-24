@@ -55,8 +55,9 @@ def check_dump(answer: harness.Answer[Any], dump: Path) -> Any:
 
 
 def test_a_video_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path, record: Callable[[str, str], 'Row']) -> None:
+    row = record('dump', f'video {VIDEO.video_id}')
     answer = ytres.resolve(VIDEO.video_id, dump=dump_file)
-    record('dump', f'video {VIDEO.video_id}').ytres(answer.code, answer.seconds)
+    row.ytres(answer.code, answer.seconds)
     response = check_dump(answer, dump_file)
     # The condition of the crash is there, so the test still tests it.
     longest = harness.longest_string_in(response)
@@ -70,13 +71,15 @@ def test_a_video_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path, record:
 
 def test_a_search_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path,
                                    record: Callable[[str, str], 'Row']) -> None:
+    row = record('dump', f'search {QUERY.query}')
     answer = ytres.search(QUERY.query, 5, dump=dump_file)
-    record('dump', f'search {QUERY.query}').ytres(answer.code, answer.seconds)
+    row.ytres(answer.code, answer.seconds)
     check_dump(answer, dump_file)
 
 
 def test_a_playlist_dump_is_scrubbed(ytres: harness.Ytres, dump_file: Path,
                                      record: Callable[[str, str], 'Row']) -> None:
+    row = record('dump', f'playlist {PLAYLIST.target}')
     answer = ytres.playlist(PLAYLIST.target, 5, dump=dump_file)
-    record('dump', f'playlist {PLAYLIST.target}').ytres(answer.code, answer.seconds)
+    row.ytres(answer.code, answer.seconds)
     check_dump(answer, dump_file)

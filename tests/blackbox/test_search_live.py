@@ -90,9 +90,9 @@ def test_a_common_query_fills_max(case: harness.SearchCase, max: int, ytres: har
 @pytest.mark.parametrize('case', of_kind('common'), ids=ids_of(of_kind('common')))
 def test_a_common_query_agrees_with_ytdlp(case: harness.SearchCase, ytres: harness.Ytres, ytdlp: harness.YtDlp,
                                           record: Callable[[str, str], 'Row']) -> None:
+    row = record('search', case.query)
     ours = ytres.search(case.query, TWO_PAGES)
     theirs = ytdlp.search_ids(case.query, AGAINST)
-    row = record('search', case.query)
     row.ytres(said(ours), ours.seconds)
     row.ytdlp(f'{len(theirs.value)} videos, first {theirs.value[0]}' if theirs.value else str(theirs.failure),
               theirs.seconds)
@@ -112,8 +112,9 @@ def test_a_common_query_agrees_with_ytdlp(case: harness.SearchCase, ytres: harne
 @pytest.mark.parametrize('case', of_kind('first'), ids=ids_of(of_kind('first')))
 def test_the_first_result_is_the_known_video(case: harness.SearchCase, ytres: harness.Ytres,
                                              record: Callable[[str, str], 'Row']) -> None:
+    row = record('search', case.query)
     answer = ytres.search(case.query, ONE_PAGE)
-    record('search', case.query).ytres(said(answer), answer.seconds)
+    row.ytres(said(answer), answer.seconds)
     assert answer.ok and answer.value, f'{case.purpose}: ytres failed or found nothing: {answer.failure}'
     check_rows(answer.value)
     first = answer.value[0]
@@ -136,8 +137,9 @@ def queries_in(node: Any) -> Iterator[str]:
 @pytest.mark.parametrize('case', of_kind('letters'), ids=ids_of(of_kind('letters')))
 def test_a_query_in_polish_letters_arrives_intact(case: harness.SearchCase, ytres: harness.Ytres, dump_file: Path,
                                                   record: Callable[[str, str], 'Row']) -> None:
+    row = record('search', case.query)
     answer = ytres.search(case.query, ONE_PAGE, dump=dump_file)
-    record('search', case.query).ytres(said(answer), answer.seconds)
+    row.ytres(said(answer), answer.seconds)
     assert answer.ok and answer.value, f'{case.purpose}: ytres failed or found nothing: {answer.failure}'
     first = answer.value[0]
     assert case.expect in first.channel or case.expect in first.title, (
@@ -154,7 +156,8 @@ def test_a_query_in_polish_letters_arrives_intact(case: harness.SearchCase, ytre
 @pytest.mark.parametrize('case', of_kind('nothing'), ids=ids_of(of_kind('nothing')))
 def test_a_nonsense_query_finds_nothing(case: harness.SearchCase, ytres: harness.Ytres,
                                         record: Callable[[str, str], 'Row']) -> None:
+    row = record('search', case.query)
     answer = ytres.search(case.query, ONE_PAGE)
-    record('search', case.query).ytres(said(answer), answer.seconds)
+    row.ytres(said(answer), answer.seconds)
     assert answer.ok, f'{case.purpose}: ytres failed: {answer.failure}'
     assert answer.value == [], f'{case.purpose}: found {[row.title for row in answer.value or []]}'

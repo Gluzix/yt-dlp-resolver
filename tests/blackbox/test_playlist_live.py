@@ -78,8 +78,9 @@ def said(answer: harness.Answer[harness.Listing]) -> str:
 @pytest.mark.parametrize('case', CASES, ids=ids_of(CASES))
 def test_ytres_lists_as_the_corpus_expects(case: harness.PlaylistCase, ytres: harness.Ytres,
                                            record: Callable[[str, str], 'Row']) -> None:
+    row = record('playlist', case.target)
     answer = ytres.playlist(case.target, case.max)
-    record('playlist', case.target).ytres(said(answer), answer.seconds)
+    row.ytres(said(answer), answer.seconds)
     assert answer.code == case.expected, (
         f'{case.purpose}: ytres said {answer.failure or "Ok"}, the corpus expects {case.expected}')
     if case.expected != 'Ok':
@@ -107,9 +108,9 @@ def test_ytres_lists_as_the_corpus_expects(case: harness.PlaylistCase, ytres: ha
 def test_ytres_lists_what_ytdlp_lists(case: harness.PlaylistCase, ytres: harness.Ytres, ytdlp: harness.YtDlp,
                                       record: Callable[[str, str], 'Row']) -> None:
     list_id = harness.list_id_of(case.target)
+    row = record('playlist', case.target)
     ours = ytres.playlist(case.target, case.max)
     theirs = ytdlp.playlist(harness.playlist_url(list_id), YTDLP_MAX[list_id])
-    row = record('playlist', case.target)
     row.ytres(said(ours), ours.seconds)
     if theirs.value is not None:
         row.ytdlp(f'count {theirs.value.count}, {len(theirs.value.ids)} listed', theirs.seconds)
