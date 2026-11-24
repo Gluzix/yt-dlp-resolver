@@ -13,6 +13,7 @@ not (harness.Halt).
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import shutil
 import socket
@@ -20,7 +21,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 import pytest
 
@@ -174,9 +175,38 @@ def _redact_report(report: pytest.TestReport) -> None:
         if isinstance(report.longrepr, tuple):  # a skip: (file, line, reason)
             path, line, reason = report.longrepr
             report.longrepr = (path, line, harness.redact(reason))
+        elif dataclasses.is_dataclass(report.longrepr):
+            # A failure's structure is kept, redacted in place: pytest's
+            # one-line summary and junit's message attribute read the
+            # assertion message from its reprcrash, which a string has not.
+            _redact_in_place(report.longrepr, set())
         else:
             report.longrepr = harness.redact(str(report.longrepr))
     report.sections = [(title, harness.redact(content)) for title, content in report.sections]
+
+
+def _redacted(value: Any, seen: Set[int]) -> Any:
+    """value with every string in it redacted: strings, lists and tuples rebuilt, pytest's reprs changed in place."""
+    if isinstance(value, str):
+        return harness.redact(value)
+    if isinstance(value, list):
+        return [_redacted(item, seen) for item in value]
+    if isinstance(value, tuple):
+        items = [_redacted(item, seen) for item in value]
+        return type(value)(*items) if hasattr(value, '_fields') else tuple(items)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        _redact_in_place(value, seen)
+    return value
+
+
+def _redact_in_place(node: Any, seen: Set[int]) -> None:
+    """Redacts every string field of one of pytest's failure reprs (dataclasses), and of those inside it."""
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    for each in dataclasses.fields(node):
+        # object.__setattr__, since some of pytest's reprs are frozen.
+        object.__setattr__(node, each.name, _redacted(getattr(node, each.name), seen))
 
 
 # --- The report ------------------------------------------------------------

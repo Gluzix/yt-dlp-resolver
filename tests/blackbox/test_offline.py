@@ -434,6 +434,21 @@ def test_the_report_table_gives_each_row_its_verdict() -> None:
     assert lines[-1].startswith('programs started: live none')
 
 
+def test_a_failure_is_redacted_and_keeps_its_message_for_the_summary() -> None:
+    import conftest
+    url = stream_url()
+    try:
+        assert url == '', f'picked {url}'
+    except AssertionError:
+        failure = pytest.ExceptionInfo.from_current().getrepr(showlocals=True)
+    conftest._redact_in_place(failure, set())
+    # pytest's one-line summary and junit's message attribute read reprcrash.
+    assert failure.reprcrash is not None
+    assert failure.reprcrash.message.startswith('AssertionError: picked <stream url, itag 251>')
+    for text in (str(failure), failure.reprcrash.message):
+        assert ADDRESS not in text and 'googlevideo' not in text
+
+
 # --- The corpus files ------------------------------------------------------
 
 def write(tmp_path: Path, text: str) -> Path:
