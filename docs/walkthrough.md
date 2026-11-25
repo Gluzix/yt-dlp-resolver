@@ -612,7 +612,8 @@ YouTube starting to require a header we do not send?*
   `windows-2022` runner for every pull request and every push to `master`:
   the same configure with the runner's own vcpkg, plus
   `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, which turns the zero-warning rule
-  from a habit into a gate without touching `CMakeLists.txt`; then Debug and
+  from a habit into a gate for compiler warnings (not linker ones) without
+  touching `CMakeLists.txt`; then Debug and
   Release builds, `ctest` on both, and the offline black-box tests. vcpkg's
   binary cache (`VCPKG_DEFAULT_BINARY_CACHE`, kept with `actions/cache`) is
   what spares each run the curl build. Nothing live runs there: a cloud

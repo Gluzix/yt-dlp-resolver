@@ -72,8 +72,10 @@ jobs:
 
       # As README.md, "Building", with the image's own vcpkg
       # (VCPKG_INSTALLATION_ROOT, C:\vcpkg) and warnings as errors for this
-      # build only: the project's rule is zero warnings, and here a warning
-      # fails the run. The toolchain installs vcpkg.json's dependencies.
+      # build only: the project's rule is zero warnings, and here a compiler
+      # warning fails the run. A linker warning does not: the switch for
+      # that, CMAKE_LINK_WARNING_AS_ERROR, needs CMake 4.0, newer than the
+      # image's. The toolchain installs vcpkg.json's dependencies.
       - name: Configure
         run: |
           $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake".Replace('\', '/')
