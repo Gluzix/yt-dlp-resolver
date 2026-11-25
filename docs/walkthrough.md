@@ -616,7 +616,7 @@ YouTube starting to require a header we do not send?*
   touching `CMakeLists.txt`; then Debug and
   Release builds, `ctest` on both, and the offline black-box tests. vcpkg's
   binary cache (`VCPKG_DEFAULT_BINARY_CACHE`, kept with `actions/cache`) is
-  what spares each run the curl build. Nothing live runs there: a cloud
+  what spares most runs the curl build. Nothing live runs there: a cloud
   address meets YouTube's bot check, and that would test GitHub's network,
   not the library.
 

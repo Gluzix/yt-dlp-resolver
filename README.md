@@ -363,8 +363,10 @@ From a clean checkout it configures as in "Building", with the runner's
 vcpkg and `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, so that a compiler
 warning fails the run (a linker warning does not); builds Debug and Release and runs `ctest` on each; and runs the
 offline part of the black-box tests against the Debug `ytres_cli`. vcpkg's
-built packages are cached between runs, so curl is built again only when
-`vcpkg.json` or the runner image's compiler or vcpkg changes.
+built packages are cached between runs, so curl is usually built again only
+when `vcpkg.json` or the runner image changes. It is also built after a
+week with no run (GitHub drops a cache entry unused for 7 days), and on a
+pull request's first run when `master` has no matching entry.
 
 It never talks to YouTube: no `ytres_live_tests`, no `pytest --live`, no
 `ytres_cli` on a real video. A request from GitHub's cloud addresses would
