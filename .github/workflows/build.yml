@@ -15,10 +15,14 @@ on:
     branches: [master]
   workflow_dispatch:
 
-# One run per pull request or branch: a newer push cancels the older run.
+# One run at a time per pull request or branch. On a pull request a newer
+# push cancels the older run. On master a run waits for the one in progress
+# instead, so that each merge commit gets a result; GitHub keeps only one
+# run waiting per group, so a third push in that window replaces the
+# waiting one.
 concurrency:
   group: build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
