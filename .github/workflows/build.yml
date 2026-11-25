@@ -45,9 +45,10 @@ jobs:
       # vcpkg refuses a VCPKG_DEFAULT_BINARY_CACHE that does not exist.
       # A cache entry is never overwritten, so the key names the exact image
       # (ImageOS and ImageVersion are set on every hosted runner): a new
-      # image, with its newer compiler and vcpkg, saves a new entry. It
-      # starts from an older image's archives, and vcpkg reuses those whose
-      # ABI hash still matches.
+      # image, with its newer compiler and vcpkg, builds the packages once
+      # and saves a new entry. There are no restore-keys on purpose: an
+      # entry started from an older image's would keep that image's
+      # archives forever and only grow.
       - name: Prepare vcpkg's binary cache
         id: image
         run: |
@@ -64,8 +65,6 @@ jobs:
         with:
           path: ${{ steps.image.outputs.cache }}
           key: vcpkg-${{ steps.image.outputs.os }}-${{ steps.image.outputs.version }}-x64-windows-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ steps.image.outputs.os }}-
 
       # As README.md, "Building", with the image's own vcpkg
       # (VCPKG_INSTALLATION_ROOT, C:\vcpkg) and warnings as errors for this
