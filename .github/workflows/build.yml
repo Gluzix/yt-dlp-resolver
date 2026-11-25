@@ -38,7 +38,11 @@ jobs:
       run:
         shell: pwsh
     steps:
+      # Nothing later needs git to authenticate, so the token is not kept
+      # for the pull request's own code (CMake, tests, conftest.py) to read.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # vcpkg keeps built packages as archives in a directory; caching that
       # directory spares rebuilding curl (several minutes) on every run.
