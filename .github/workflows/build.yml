@@ -1,0 +1,124 @@
+# Builds everything from a clean checkout and runs the tests that need no
+# network, on every pull request and every push to master: does it still
+# build and pass on a machine that is not Kamil's?
+#
+# Nothing here talks to YouTube: no ytres_live_tests, no pytest --live, no
+# ytres_cli on a real video. A request from GitHub's cloud addresses would
+# likely meet a bot check and say nothing about what the bot sees. The
+# offline tests need no network by construction, which is what makes them
+# safe here. No secret is used or needed.
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# One run at a time per pull request or branch. On a pull request a newer
+# push cancels the older run. On master a run waits for the one in progress
+# instead, so that each merge commit gets a result; GitHub keeps only one
+# run waiting per group, so a third push in that window replaces the
+# waiting one.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Named, not windows-latest: the configure step names the "Visual Studio
+    # 17 2022" generator, and windows-2022 is the image that ships Visual
+    # Studio 2022 (windows-latest and windows-2025 carry a newer one).
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # Nothing later needs git to authenticate, so the token is not kept
+      # for the pull request's own code (CMake, tests, conftest.py) to read.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # vcpkg keeps built packages as archives in a directory; caching that
+      # directory spares rebuilding curl (several minutes) on every run.
+      # vcpkg refuses a VCPKG_DEFAULT_BINARY_CACHE that does not exist.
+      # A cache entry is never overwritten, so the key names the exact image
+      # (ImageOS and ImageVersion are set on every hosted runner): a new
+      # image, with its newer compiler and vcpkg, builds the packages once
+      # and saves a new entry. There are no restore-keys on purpose: an
+      # entry started from an older image's would keep that image's
+      # archives forever and only grow.
+      - name: Prepare vcpkg's binary cache
+        id: image
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'vcpkg-archives'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$cache" >> $env:GITHUB_ENV
+          "cache=$cache" >> $env:GITHUB_OUTPUT
+          "os=$env:ImageOS" >> $env:GITHUB_OUTPUT
+          "version=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Restore vcpkg's binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.image.outputs.cache }}
+          key: vcpkg-${{ steps.image.outputs.os }}-${{ steps.image.outputs.version }}-x64-windows-${{ hashFiles('vcpkg.json') }}
+
+      # As README.md, "Building", with the image's own vcpkg
+      # (VCPKG_INSTALLATION_ROOT, C:\vcpkg) and warnings as errors for this
+      # build only: the project's rule is zero warnings, and here a compiler
+      # warning fails the run. A linker warning does not: the switch for
+      # that, CMAKE_LINK_WARNING_AS_ERROR, needs CMake 4.0, newer than the
+      # image's. The toolchain installs vcpkg.json's dependencies.
+      - name: Configure
+        run: |
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake".Replace('\', '/')
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+
+      # Saved straight after configure, not at the end of the job, so that a
+      # failing test does not throw away a curl build.
+      - name: Save vcpkg's binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.image.outputs.cache }}
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build Debug
+        run: cmake --build build --config Debug
+
+      # --no-tests=error: a ctest that finds no test fails rather than passes.
+      - name: Test Debug
+        run: ctest --test-dir build -C Debug --output-on-failure --no-tests=error
+
+      # Release has never been part of the routine checks; an optimized
+      # build can warn or fail where a Debug one does not.
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Test Release
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # The offline part only (no --live): ytres_cli sits behind a proxy on
+      # 127.0.0.1 that nobody listens on, so a request it should not make
+      # fails here. Each command is checked, since PowerShell does not stop
+      # on a native command's exit code and the step would report only the
+      # last one.
+      - name: Black-box tests, offline
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python -m pip install -r tests/blackbox/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python -m pytest tests/blackbox --ytres-cli=build/Debug/ytres_cli.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

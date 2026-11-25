@@ -608,6 +608,17 @@ YouTube starting to require a header we do not send?*
   to avoid DLLs beside the bot's exe; switching to `x64-windows-static-md`
   fixes that and is an M6 decision, because it depends on how the bot
   consumes the library.
+- `.github/workflows/build.yml` repeats all of this on GitHub's
+  `windows-2022` runner for every pull request and every push to `master`:
+  the same configure with the runner's own vcpkg, plus
+  `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, which turns the zero-warning rule
+  from a habit into a gate for compiler warnings (not linker ones) without
+  touching `CMakeLists.txt`; then Debug and Release builds, `ctest` on
+  both, and the offline black-box tests. vcpkg's
+  binary cache (`VCPKG_DEFAULT_BINARY_CACHE`, kept with `actions/cache`) is
+  what spares most runs the curl build. Nothing live runs there: a cloud
+  address meets YouTube's bot check, and that would test GitHub's network,
+  not the library.
 
 *Questions: what does `add_subdirectory(yt-dlp-resolver)` from the bot's
 CMake need, and what does an installed package need instead?*

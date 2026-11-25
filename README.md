@@ -1,5 +1,7 @@
 # ytres
 
+[![Build and test](https://github.com/Gluzix/yt-dlp-resolver/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/Gluzix/yt-dlp-resolver/actions/workflows/build.yml)
+
 A C++17 library that turns a YouTube link into the video's title, its
 canonical page URL and a direct audio stream URL, by asking YouTube's
 InnerTube API the way yt-dlp does. It exists to replace the `yt-dlp.exe`
@@ -351,3 +353,27 @@ bot" or HTTP 429 stops every live request of the run and skips the rest
 with that reason. A `ytres_cli` that is still running after a minute, or
 exits with anything but 0 or 1 (an abort is 3), is killed and halts the
 whole run: a hang may be a window nobody is there to close.
+
+## Continuous integration
+
+`.github/workflows/build.yml` ("Build and test", the badge at the top)
+runs on every pull request and every push to `master`, on GitHub's
+`windows-2022` runner (Visual Studio 2022, as the generator above names).
+From a clean checkout it configures as in "Building", with the runner's
+vcpkg and `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, so that a compiler
+warning fails the run (a linker warning does not); builds Debug and
+Release and runs `ctest` on each; and runs the offline part of the
+black-box tests against the Debug `ytres_cli`. vcpkg's
+built packages are cached between runs, so curl is usually built again only
+when `vcpkg.json` or the runner image changes. It is also built after a
+week with no run (GitHub drops a cache entry unused for 7 days), and on a
+pull request's first run when `master` has no matching entry.
+
+It never talks to YouTube: no `ytres_live_tests`, no `pytest --live`, no
+`ytres_cli` on a real video. A request from GitHub's cloud addresses would
+likely meet a bot check and say nothing about what the bot sees; the live
+tests stay something to run by hand, as above. The workflow needs no
+secret.
+
+To start it by hand: the Actions tab, "Build and test", "Run workflow", or
+`gh workflow run build.yml --ref <branch>`.
