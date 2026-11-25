@@ -613,8 +613,8 @@ YouTube starting to require a header we do not send?*
   the same configure with the runner's own vcpkg, plus
   `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, which turns the zero-warning rule
   from a habit into a gate for compiler warnings (not linker ones) without
-  touching `CMakeLists.txt`; then Debug and
-  Release builds, `ctest` on both, and the offline black-box tests. vcpkg's
+  touching `CMakeLists.txt`; then Debug and Release builds, `ctest` on
+  both, and the offline black-box tests. vcpkg's
   binary cache (`VCPKG_DEFAULT_BINARY_CACHE`, kept with `actions/cache`) is
   what spares most runs the curl build. Nothing live runs there: a cloud
   address meets YouTube's bot check, and that would test GitHub's network,

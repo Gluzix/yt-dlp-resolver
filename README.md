@@ -361,8 +361,9 @@ runs on every pull request and every push to `master`, on GitHub's
 `windows-2022` runner (Visual Studio 2022, as the generator above names).
 From a clean checkout it configures as in "Building", with the runner's
 vcpkg and `-DCMAKE_COMPILE_WARNING_AS_ERROR=ON`, so that a compiler
-warning fails the run (a linker warning does not); builds Debug and Release and runs `ctest` on each; and runs the
-offline part of the black-box tests against the Debug `ytres_cli`. vcpkg's
+warning fails the run (a linker warning does not); builds Debug and
+Release and runs `ctest` on each; and runs the offline part of the
+black-box tests against the Debug `ytres_cli`. vcpkg's
 built packages are cached between runs, so curl is usually built again only
 when `vcpkg.json` or the runner image changes. It is also built after a
 week with no run (GitHub drops a cache entry unused for 7 days), and on a
